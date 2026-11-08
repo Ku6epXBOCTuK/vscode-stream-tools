@@ -28,7 +28,21 @@ check:
     cargo test --workspace
     pnpm --filter @stream-tools/frontend run check
     pnpm --filter @stream-tools/frontend run test
+    pnpm --filter stream-tools-extension run typecheck
+    pnpm --filter stream-tools-extension run test
     pnpm exec biome check .
+
+# Compile the extension
+ext-build:
+    pnpm --filter stream-tools-extension run compile
+
+# Build the .vsix package
+ext-package: ext-build
+    pnpm --filter stream-tools-extension run package
+
+# Install the .vsix into VS Code
+ext-install: ext-package
+    code --install-extension extension/stream-tools-extension.vsix --force
 
 # Install workspace dependencies
 ext-setup:

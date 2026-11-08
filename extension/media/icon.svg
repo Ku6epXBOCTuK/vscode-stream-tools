@@ -1,0 +1,13 @@
+<svg
+	xmlns="http://www.w3.org/2000/svg"
+	viewBox="0 0 24 24"
+	fill="none"
+	stroke="currentColor"
+	stroke-width="1.6"
+	stroke-linecap="round"
+	stroke-linejoin="round"
+>
+	<title>Stream Tools</title>
+	<path d="M4 5.5h16v11.5l-3.5 3.5H8L4 17Z" />
+	<path d="M10 8.5v7.5l5.5-3.75Z" />
+</svg>

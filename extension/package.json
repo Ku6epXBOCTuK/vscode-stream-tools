@@ -1,9 +1,239 @@
 {
   "name": "stream-tools-extension",
   "displayName": "Stream Tools",
-  "description": "Music player and Twitch chat for VS Code",
+  "description": "Music player and Twitch chat for VS Code, backed by one local process",
   "version": "0.1.0",
-  "private": true,
   "publisher": "Ku6epXBOCTuK",
-  "license": "MIT"
+  "license": "MIT",
+  "keywords": [
+    "music",
+    "twitch",
+    "chat",
+    "overlay",
+    "obs",
+    "stream"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ku6epXBOCTuK/vscode-stream-tools"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onView:stream-tools.chat"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "stream-tools",
+          "title": "Stream Tools",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "stream-tools": [
+        {
+          "type": "webview",
+          "id": "stream-tools.chat",
+          "name": "Chat"
+        },
+        {
+          "type": "tree",
+          "id": "stream-tools.unread",
+          "name": "Unread",
+          "visibility": "hidden"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "stream-tools.signIn",
+          "when": "view == stream-tools.chat",
+          "group": "navigation@1"
+        },
+        {
+          "command": "stream-tools.refresh",
+          "when": "view == stream-tools.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "stream-tools.playPause",
+          "when": "view == stream-tools.chat",
+          "group": "music@1"
+        },
+        {
+          "command": "stream-tools.nextTrack",
+          "when": "view == stream-tools.chat",
+          "group": "music@2"
+        },
+        {
+          "command": "stream-tools.nextPlaylist",
+          "when": "view == stream-tools.chat",
+          "group": "music@3"
+        },
+        {
+          "command": "stream-tools.toggleShuffle",
+          "when": "view == stream-tools.chat",
+          "group": "music@4"
+        },
+        {
+          "command": "stream-tools.startServer",
+          "when": "view == stream-tools.chat",
+          "group": "server@1"
+        },
+        {
+          "command": "stream-tools.restartServer",
+          "when": "view == stream-tools.chat",
+          "group": "server@2"
+        },
+        {
+          "command": "stream-tools.stopServer",
+          "when": "view == stream-tools.chat",
+          "group": "server@3"
+        },
+        {
+          "command": "stream-tools.reconnectChat",
+          "when": "view == stream-tools.chat",
+          "group": "server@4"
+        },
+        {
+          "command": "stream-tools.setChannel",
+          "when": "view == stream-tools.chat",
+          "group": "server@5"
+        },
+        {
+          "command": "stream-tools.copyOverlayUrl",
+          "when": "view == stream-tools.chat",
+          "group": "overlay@1"
+        },
+        {
+          "command": "stream-tools.openPanel",
+          "when": "view == stream-tools.chat",
+          "group": "overlay@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Stream Tools",
+      "properties": {
+        "stream-tools.port": {
+          "type": "number",
+          "default": 45890,
+          "description": "Port of the local stream-tools process. It has to match the backend's config.json."
+        },
+        "stream-tools.binaryPath": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "default": null,
+          "description": "Path to stream-tools.exe. Leave empty to use ~/bin/stream-tools/stream-tools.exe."
+        },
+        "stream-tools.autoStart": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the backend automatically when it stops answering. A manual stop disables it until the next manual start."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "stream-tools.openChat",
+        "title": "Stream Tools: Open Chat"
+      },
+      {
+        "command": "stream-tools.signIn",
+        "title": "Stream Tools: Sign In to Twitch",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "stream-tools.refresh",
+        "title": "Stream Tools: Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "stream-tools.startServer",
+        "title": "Stream Tools: Start Backend"
+      },
+      {
+        "command": "stream-tools.stopServer",
+        "title": "Stream Tools: Stop Backend"
+      },
+      {
+        "command": "stream-tools.restartServer",
+        "title": "Stream Tools: Restart Backend",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "stream-tools.reconnectChat",
+        "title": "Stream Tools: Reconnect to Twitch",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "stream-tools.setChannel",
+        "title": "Stream Tools: Set Channel"
+      },
+      {
+        "command": "stream-tools.copyOverlayUrl",
+        "title": "Stream Tools: Copy Overlay URL",
+        "icon": "$(link)"
+      },
+      {
+        "command": "stream-tools.openPanel",
+        "title": "Stream Tools: Open Panel",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "stream-tools.playPause",
+        "title": "Stream Tools: Play/Pause",
+        "icon": "$(play)"
+      },
+      {
+        "command": "stream-tools.nextTrack",
+        "title": "Stream Tools: Next Track",
+        "icon": "$(chevron-right)"
+      },
+      {
+        "command": "stream-tools.nextPlaylist",
+        "title": "Stream Tools: Next Playlist",
+        "icon": "$(library)"
+      },
+      {
+        "command": "stream-tools.previousPlaylist",
+        "title": "Stream Tools: Previous Playlist"
+      },
+      {
+        "command": "stream-tools.toggleShuffle",
+        "title": "Stream Tools: Toggle Shuffle",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "stream-tools.setVolume",
+        "title": "Stream Tools: Set Volume"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "node test/run.js",
+    "package": "vsce package --no-dependencies --allow-missing-repository --out stream-tools-extension.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
 }

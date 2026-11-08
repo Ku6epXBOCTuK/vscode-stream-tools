@@ -241,10 +241,15 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
     let chat_config = state.chat.config.read().await;
     let link = *state.chat.eventsub.read().await;
     let authenticated = state.chat.token.read().await.is_some();
+    let exe = std::env::current_exe()
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION"),
         "port": state.port,
+        "pid": std::process::id(),
+        "exe": exe,
         "uptime_seconds": state.started.elapsed().as_secs(),
         "music": {
             "volume": music.volume,
@@ -256,6 +261,7 @@ async fn health_handler(State(state): State<AppState>) -> Json<serde_json::Value
             "channel": chat_config.channel,
             "link": link,
             "authenticated": authenticated,
+            "unread": state.chat.store.unread(),
         },
     }))
 }
