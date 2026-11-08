@@ -1,0 +1,7 @@
+packages:
+  - extension
+  - frontend
+
+allowBuilds:
+  esbuild: false
+  "@vscode/vsce-sign": false

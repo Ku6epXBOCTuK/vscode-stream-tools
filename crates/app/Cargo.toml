@@ -1,0 +1,12 @@
+[package]
+name = "stream-tools"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[[bin]]
+name = "stream-tools"
+path = "src/main.rs"
+
+[dependencies]

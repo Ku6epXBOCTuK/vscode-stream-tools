@@ -53,7 +53,6 @@ extension/
 pnpm-workspace.yaml
 justfile
 cog.toml
-.github/workflows/
 AGENTS.md
 README.md
 LICENSE
@@ -126,8 +125,8 @@ Router.
 ### 8. Сборка, установка, переключение
 
 `just`-рецепты: build, install в `~/bin/stream-tools/`, `ext-build`,
-`ext-install`, health, logs; CI и `cog` переносятся из старых репозиториев.
-Затем вручную:
+`ext-install`, health, logs. CI и release-workflow отложены до готовности
+приложения к распространению (VST-10). Затем вручную:
 
 1. Установить `stream-tools` и новый `.vsix`.
 2. Удалить старые расширения и `~/bin/vscode-music-player`,

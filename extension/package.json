@@ -1,0 +1,9 @@
+{
+  "name": "stream-tools-extension",
+  "displayName": "Stream Tools",
+  "description": "Music player and Twitch chat for VS Code",
+  "version": "0.1.0",
+  "private": true,
+  "publisher": "Ku6epXBOCTuK",
+  "license": "MIT"
+}

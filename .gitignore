@@ -1,0 +1,14 @@
+node_modules/
+dist/
+target/
+testdata/
+*.vsix
+extension/LICENSE
+crates/app/assets/app/
+
+# runtime state written next to the binary
+stream-tools.log
+stream-tools.log.1
+config.json
+config.json.bak
+config.json.bak.2

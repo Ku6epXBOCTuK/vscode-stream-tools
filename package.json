@@ -1,13 +1,14 @@
 {
   "name": "vscode-stream-tools",
   "version": "0.1.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Music player and Twitch chat for VS Code in one local backend",
+  "private": true,
   "scripts": {
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "check": "biome check ."
   },
   "keywords": [],
-  "author": "",
+  "author": "Ku6epXBOCTuK",
   "license": "MIT",
   "devEngines": {
     "packageManager": {
