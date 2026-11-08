@@ -13,16 +13,25 @@ extension/     один .vsix
 frontend/      Svelte: панель и оверлей
 ```
 
-## Сборка
+## Сборка и установка
 
 ```powershell
 pnpm install
-just backend-build
-just check
+just install
 ```
 
-Бинарник `stream-tools.exe` ставится в `~/bin/stream-tools/` вместе с
-`config.json` и `assets/`.
+`just install` собирает бэкенд и фронтенд, кладёт `stream-tools.exe` и `assets/`
+в `~/bin/stream-tools/`. `config.json` создаётся при первом запуске рядом с
+бинарником.
+
+```powershell
+just health   # /api/health на 45890
+just logs     # последние строки stream-tools.log
+just stop     # мягко остановить процесс
+just ext-package
+```
+
+Другой порт для проверок: `just --set port 45998 health`.
 
 ## Маршруты
 

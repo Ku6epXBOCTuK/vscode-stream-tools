@@ -1,5 +1,8 @@
 set windows-shell := ["powershell", "-NoProfile", "-Command"]
 
+port := "45890"
+install_dir := env_var("USERPROFILE") / "bin" / "stream-tools"
+
 # Show available recipes
 default:
     @just --list
@@ -35,15 +38,34 @@ check:
 # Compile the extension
 ext-build:
     pnpm --filter stream-tools-extension run compile
+    Copy-Item LICENSE extension/LICENSE -Force
 
 # Build the .vsix package
 ext-package: ext-build
     pnpm --filter stream-tools-extension run package
 
-# Install the .vsix into VS Code
+# Install the .vsix into the portable VS Code
 ext-install: ext-package
-    code --install-extension extension/stream-tools-extension.vsix --force
+    C:/VSCode/VSCodeKX/bin/code.cmd --install-extension extension/stream-tools-extension.vsix --force
 
 # Install workspace dependencies
 ext-setup:
     pnpm install
+
+# Install the binary and its assets into ~/bin/stream-tools
+install: backend-build frontend-build assets
+    New-Item -ItemType Directory -Force "{{install_dir}}/assets" | Out-Null
+    Copy-Item -Recurse -Force target/release/assets/* "{{install_dir}}/assets/"
+    Copy-Item -Force target/release/stream-tools.exe "{{install_dir}}/stream-tools.exe"
+
+# Ask the running backend to exit
+stop:
+    Invoke-RestMethod -Method Post "http://127.0.0.1:{{port}}/api/shutdown"
+
+# Print the health payload of the running backend
+health:
+    Invoke-RestMethod "http://127.0.0.1:{{port}}/api/health" | ConvertTo-Json -Depth 6
+
+# Show the last lines of the backend log
+logs:
+    if (Test-Path "{{install_dir}}/stream-tools.log") { Get-Content "{{install_dir}}/stream-tools.log" -Tail 80 } else { "no log yet: {{install_dir}}/stream-tools.log" }
