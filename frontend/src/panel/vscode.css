@@ -1,0 +1,131 @@
+@layer ui-tokens {
+	body {
+		--ui-line-w: 1px;
+		--ui-focus-ring-w: 1px;
+		--ui-focus-ring-offset: -1px;
+		--ui-focus-room: 4px;
+
+		--ui-r-chip: 2px;
+		--ui-r-control: 2px;
+		--ui-r-panel: 0;
+
+		--ui-control-h-sm: 22px;
+		--ui-control-h-md: 26px;
+		--ui-control-h-lg: 32px;
+
+		--ui-space-1: 2px;
+		--ui-space-2: 4px;
+		--ui-space-3: 6px;
+		--ui-space-4: 8px;
+		--ui-space-5: 12px;
+		--ui-space-6: 16px;
+
+		--ui-font: var(--vscode-font-family);
+		--ui-fs-sm: calc(var(--vscode-font-size, 13px) - 1px);
+		--ui-fs-md: var(--vscode-font-size, 13px);
+		--ui-fs-lg: calc(var(--vscode-font-size, 13px) + 1px);
+		--ui-lh: 1.4;
+
+		--ui-shadow-control: none;
+		--ui-shadow-raised: none;
+		--ui-shadow-panel: none;
+	}
+
+	body.vscode-light,
+	body.vscode-high-contrast-light {
+		color-scheme: light;
+
+		--ui-bg: var(--vscode-editor-background);
+		--ui-bg-muted: var(
+			--vscode-sideBar-background,
+			var(--vscode-editor-background)
+		);
+		--ui-surface: var(
+			--vscode-editorWidget-background,
+			var(--vscode-editor-background)
+		);
+		--ui-panel: var(
+			--vscode-editorWidget-background,
+			var(--vscode-editor-background)
+		);
+		--ui-field: var(--vscode-input-background);
+		--ui-hover: var(--vscode-list-hoverBackground);
+		--ui-selected: var(--vscode-list-activeSelectionBackground);
+
+		--ui-fg: var(--vscode-foreground);
+		--ui-fg-secondary: var(--vscode-foreground);
+		--ui-fg-muted: var(--vscode-descriptionForeground);
+
+		--ui-line: var(
+			--vscode-contrastBorder,
+			var(--vscode-panel-border, transparent)
+		);
+		--ui-line-strong: var(--vscode-focusBorder);
+
+		--ui-accent: var(--vscode-button-background);
+		--ui-accent-hover: var(--vscode-button-hoverBackground);
+		--ui-on-accent: var(--vscode-button-foreground);
+
+		--ui-danger: var(--vscode-errorForeground);
+		--ui-danger-surface: var(
+			--vscode-inputValidation-errorBackground,
+			transparent
+		);
+		--ui-warning: var(
+			--vscode-editorWarning-foreground,
+			var(--vscode-errorForeground)
+		);
+		--ui-success: var(--vscode-testing-iconPassed, #388a34);
+		--ui-info: var(--vscode-textLink-foreground);
+		--ui-focus: var(--vscode-focusBorder);
+	}
+
+	body.vscode-dark,
+	body.vscode-high-contrast {
+		color-scheme: dark;
+
+		--ui-bg: var(--vscode-editor-background);
+		--ui-bg-muted: var(
+			--vscode-sideBar-background,
+			var(--vscode-editor-background)
+		);
+		--ui-surface: var(
+			--vscode-editorWidget-background,
+			var(--vscode-editor-background)
+		);
+		--ui-panel: var(
+			--vscode-editorWidget-background,
+			var(--vscode-editor-background)
+		);
+		--ui-field: var(--vscode-input-background);
+		--ui-hover: var(--vscode-list-hoverBackground);
+		--ui-selected: var(--vscode-list-activeSelectionBackground);
+
+		--ui-fg: var(--vscode-foreground);
+		--ui-fg-secondary: var(--vscode-foreground);
+		--ui-fg-muted: var(--vscode-descriptionForeground);
+
+		--ui-line: var(
+			--vscode-contrastBorder,
+			var(--vscode-panel-border, transparent)
+		);
+		--ui-line-strong: var(--vscode-focusBorder);
+
+		--ui-accent: var(--vscode-button-background);
+		--ui-accent-hover: var(--vscode-button-hoverBackground);
+		--ui-on-accent: var(--vscode-button-foreground);
+
+		--ui-danger: var(--vscode-errorForeground);
+		--ui-danger-surface: var(
+			--vscode-inputValidation-errorBackground,
+			transparent
+		);
+		--ui-warning: var(
+			--vscode-editorWarning-foreground,
+			var(--vscode-errorForeground)
+		);
+		--ui-success: var(--vscode-testing-iconPassed, #89d185);
+		--ui-info: var(--vscode-textLink-foreground);
+		--ui-focus: var(--vscode-focusBorder);
+	}
+}

@@ -1,0 +1,131 @@
+﻿* {
+	box-sizing: border-box;
+}
+
+html,
+body {
+	height: 100%;
+	overflow: hidden;
+}
+
+body {
+	margin: 0;
+	padding: 0;
+	background: transparent;
+	color: #fff;
+	font-family: Montserrat, -apple-system, sans-serif;
+	font-size: 18px;
+	font-weight: 500;
+	white-space: nowrap;
+}
+
+body * {
+	white-space: nowrap;
+	text-shadow: 0 0 3px #000;
+}
+
+#widget {
+	position: relative;
+}
+
+#background {
+	width: auto;
+	height: 1.75em;
+	background-color: #000000b4;
+}
+
+#chat-messages {
+	position: absolute;
+	top: 0;
+	right: 0;
+	left: 0;
+	overflow: hidden;
+}
+
+ul {
+	display: flex;
+	align-items: flex-start;
+	justify-content: flex-end;
+	margin: 0;
+	padding: 0;
+	overflow: hidden;
+	white-space: nowrap;
+}
+
+li {
+	display: block;
+	flex: 0 0 auto;
+	width: 0;
+	height: 2em;
+	overflow: hidden;
+	list-style: none;
+	transition: opacity 0.6s ease;
+}
+
+li.gone {
+	opacity: 0;
+}
+
+.inner {
+	display: block;
+	position: absolute;
+	top: 0;
+	left: 0;
+	line-height: 1.25em;
+}
+
+li.fixed .inner {
+	position: static;
+}
+
+.inner-padding {
+	display: block;
+	padding: 0.25em 0.5em 0.25em 0.25em;
+}
+
+.username {
+	color: #ffbc90;
+	text-shadow: 0 0 2px #000;
+}
+
+.username:after {
+	content: ": ";
+	color: #f1f1f1;
+}
+
+.text-message.reply {
+	color: #ebe379;
+}
+
+.text-message.highlighted {
+	background: #4b7dad;
+	border: 3px solid #4b7dad;
+}
+
+.badges img {
+	height: 1em;
+	width: auto;
+	min-width: 1em;
+	margin-right: 0.2em;
+	margin-bottom: -0.15em;
+	object-fit: contain;
+	image-rendering: -webkit-optimize-contrast;
+}
+
+.badge {
+	margin-right: 0.2em;
+	padding: 0 0.4em;
+	border-radius: 0.25em;
+	background: #ffffff14;
+	color: #a8b3ae;
+}
+
+.emoticon {
+	height: 1.5em;
+	width: auto;
+	min-width: 1.5em;
+	margin-top: -0.4em;
+	margin-bottom: -0.4em;
+	object-fit: contain;
+	image-rendering: -webkit-optimize-contrast;
+}
