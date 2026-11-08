@@ -46,6 +46,17 @@ impl MusicState {
     fn persist(&self) {
         (self.on_change)(self.snapshot());
     }
+
+    pub fn current_track(&self) -> Option<String> {
+        let state = self.player.read();
+        if state.status == player::Status::Stopped {
+            return None;
+        }
+        state
+            .current_track
+            .clone()
+            .filter(|track| !track.trim().is_empty())
+    }
 }
 
 pub struct Music {

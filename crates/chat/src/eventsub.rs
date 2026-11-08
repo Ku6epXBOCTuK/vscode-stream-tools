@@ -309,6 +309,14 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event) {
             {
                 chat_message.highlighted = true;
             }
+            if let Some(reply) = state.dispatcher.handle(&chat_message, &me) {
+                let reply_to = (!chat_message.id.starts_with(chat::LOCAL_ID_PREFIX))
+                    .then(|| chat_message.id.clone());
+                let state = state.clone();
+                tokio::spawn(async move {
+                    crate::command::reply(&state, reply, reply_to).await;
+                });
+            }
             state.push(chat_message);
         }
         Event::ChannelChatNotificationV1(payload) => {

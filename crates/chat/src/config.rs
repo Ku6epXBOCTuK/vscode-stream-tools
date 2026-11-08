@@ -71,6 +71,32 @@ impl Tokens {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct TrackCommand {
+    pub enabled: bool,
+    pub aliases: Vec<String>,
+    pub template: String,
+    pub cooldown_seconds: u64,
+}
+
+impl Default for TrackCommand {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            aliases: vec!["!трек".to_string(), "!track".to_string()],
+            template: "Сейчас играет: {track}".to_string(),
+            cooldown_seconds: 10,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
+#[serde(default)]
+pub struct Commands {
+    pub track: TrackCommand,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 #[serde(default)]
 pub struct ChatConfig {

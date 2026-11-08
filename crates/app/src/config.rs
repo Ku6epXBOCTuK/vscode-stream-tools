@@ -2,39 +2,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 
-use chat::ChatConfig;
+use chat::{ChatConfig, Commands};
 use music::{KIND_LOCAL_FOLDER, KIND_NETWORK_RADIO, MusicConfig, Playlist};
 
 pub const CONFIG_VERSION: u32 = 1;
 pub const DEFAULT_PORT: u16 = 45890;
 const MIN_PORT: u32 = 1024;
 const MAX_PORT: u32 = 65535;
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[serde(default)]
-pub struct TrackCommand {
-    pub enabled: bool,
-    pub aliases: Vec<String>,
-    pub template: String,
-    pub cooldown_seconds: u64,
-}
-
-impl Default for TrackCommand {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            aliases: vec!["!трек".to_string(), "!track".to_string()],
-            template: "Сейчас играет: {track}".to_string(),
-            cooldown_seconds: 10,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
-#[serde(default)]
-pub struct Commands {
-    pub track: TrackCommand,
-}
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Config {

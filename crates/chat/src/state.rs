@@ -15,7 +15,8 @@ use twitch_oauth2::{UserToken, UserTokenBuilder};
 use crate::api;
 use crate::auth;
 use crate::chat::{self, Store};
-use crate::config::ChatConfig;
+use crate::command::{Dispatcher, NowPlayingSource};
+use crate::config::{ChatConfig, Commands};
 use crate::eventsub;
 use crate::sound::Sound;
 
@@ -50,6 +51,7 @@ pub struct ChatState {
     pub activity: StdMutex<Activity>,
     pub reconnect: Notify,
     pub sound: Sound,
+    pub dispatcher: Dispatcher,
     pub port: u16,
     on_change: ChangeHook,
 }
@@ -104,12 +106,15 @@ pub struct Chat {
 impl Chat {
     pub async fn start(
         config: ChatConfig,
+        commands: Commands,
+        now_playing: NowPlayingSource,
         port: u16,
         shutdown: CancellationToken,
         on_change: ChangeHook,
     ) -> Result<Chat, String> {
         let http = reqwest::Client::new();
         let sound = Sound::new(&config.sound);
+        let dispatcher = Dispatcher::new(&commands, now_playing);
         let state = Arc::new(ChatState {
             store: Store::new(),
             config: RwLock::new(config),
@@ -125,6 +130,7 @@ impl Chat {
             activity: StdMutex::new(Activity::default()),
             reconnect: Notify::new(),
             sound,
+            dispatcher,
             port,
             on_change,
         });
@@ -194,6 +200,7 @@ mod tests {
             activity: StdMutex::new(Activity::default()),
             reconnect: Notify::new(),
             sound,
+            dispatcher: Dispatcher::new(&Default::default(), Arc::new(|| None)),
             port: 45890,
             on_change: Arc::new(|_| {}),
         })

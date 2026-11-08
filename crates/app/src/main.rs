@@ -134,7 +134,22 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let chat = match Chat::start(chat_config, port, shutdown.clone(), chat_hook).await {
+    let music_state = music.state();
+    let commands = shared.lock().commands.clone();
+    let now_playing: chat::NowPlayingSource = {
+        let music = music_state.clone();
+        Arc::new(move || music.current_track())
+    };
+    let chat = match Chat::start(
+        chat_config,
+        commands,
+        now_playing,
+        port,
+        shutdown.clone(),
+        chat_hook,
+    )
+    .await
+    {
         Ok(chat) => chat,
         Err(e) => {
             log::error!("cannot start Twitch chat: {e}");
@@ -143,7 +158,7 @@ async fn main() {
     };
 
     let state = AppState {
-        music: music.state(),
+        music: music_state,
         chat: chat.state(),
         port,
         started: Instant::now(),

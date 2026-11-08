@@ -376,6 +376,38 @@ pub async fn send_message(
     })))
 }
 
+pub(crate) async fn send_text(
+    state: &Arc<ChatState>,
+    text: &str,
+    reply_to: Option<&str>,
+) -> Result<(), String> {
+    let (token, broadcaster) = twitch_context(state, "send messages")
+        .await
+        .map_err(|err| {
+            err.1
+                .0
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("cannot send the message")
+                .to_string()
+        })?;
+    let mut outgoing = SendChatMessageBody::new(broadcaster, token.user_id.clone(), text);
+    if let Some(reply) = reply_to {
+        outgoing = outgoing.reply_parent_message_id(reply);
+    }
+
+    let response = twitch::post(state, SendChatMessageRequest::new(), outgoing)
+        .await
+        .map_err(|err| err.to_string())?;
+    if !response.is_sent {
+        return Err(response
+            .drop_reason
+            .map(|reason| reason.message)
+            .unwrap_or_else(|| "message was not delivered".to_string()));
+    }
+    Ok(())
+}
+
 pub async fn delete_message(
     State(state): State<Arc<ChatState>>,
     Path(message_id): Path<String>,
