@@ -18,6 +18,7 @@ use axum::{Json, Router};
 use chat::{Chat, ChatState};
 use music::{Music, MusicState};
 use tokio_util::sync::CancellationToken;
+use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 
 #[derive(Clone)]
@@ -188,7 +189,8 @@ async fn main() {
         .nest_service("/assets", ServeDir::new(config::assets_dir()))
         .with_state(state)
         .merge(music::router(music.state()))
-        .merge(chat::router(chat.state()));
+        .merge(chat::router(chat.state()))
+        .layer(CorsLayer::permissive());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     let listener = match tokio::net::TcpListener::bind(addr).await {

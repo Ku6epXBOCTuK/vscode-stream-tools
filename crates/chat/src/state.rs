@@ -8,7 +8,6 @@ use axum::routing::{delete, get, post};
 use serde::Serialize;
 use tokio::sync::{Mutex, Notify, RwLock};
 use tokio_util::sync::CancellationToken;
-use tower_http::cors::CorsLayer;
 use twitch_api::helix::HelixClient;
 use twitch_oauth2::{UserToken, UserTokenBuilder};
 
@@ -171,7 +170,6 @@ pub fn router(state: Arc<ChatState>) -> Router {
         .route("/chat/events", get(api::events))
         .route("/chat/eventsub/reconnect", post(api::reconnect))
         .route("/chat/badges", get(api::badges))
-        .layer(CorsLayer::permissive())
         .with_state(state)
 }
 
