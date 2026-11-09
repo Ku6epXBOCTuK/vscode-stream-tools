@@ -17,7 +17,10 @@
 	});
 </script>
 
-<div id="widget" style:font-size={`${chat.fontSize / 18}em`}>
+<div
+	id="widget"
+	style:font-size={`min(${chat.fontSize}px, calc(100vh / 1.75))`}
+>
 	<div id="chat-messages">
 		<ul role="log" aria-live="polite">
 			{#each chat.history.entries as entry (entry.key)}

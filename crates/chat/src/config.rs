@@ -33,7 +33,7 @@ impl Default for Widget {
             max_messages: 12,
             fade_seconds: 45,
             font_size: 22,
-            show_badges: true,
+            show_badges: false,
         }
     }
 }

@@ -12,7 +12,7 @@ export class ChatCore {
 	history: History;
 	stream: Stream;
 	badges = $state<Record<string, string>>({});
-	showBadges = $state(true);
+	showBadges = $state(false);
 	error = $state("");
 	notice = $state("");
 	protected api = createApi();

@@ -45,7 +45,9 @@
 					{/each}
 				</span>
 			{/if}
-			<span class="username">{message.user.name}</span>
+			<span class="username" style:color={message.user.color ?? undefined}
+				>{message.user.name}</span
+			>
 			<span
 				class="text-message"
 				class:reply={message.reply !== undefined}
