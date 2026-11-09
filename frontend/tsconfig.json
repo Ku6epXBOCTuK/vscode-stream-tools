@@ -16,7 +16,7 @@
 				"./node_modules/@ku6epxboctuk/ui-kit/src/components/*.d.svelte.ts"
 			]
 		},
-		"types": ["vite/client", "node"]
+		"types": ["vite/client", "node", "unplugin-icons/types/svelte"]
 	},
 	"include": ["src/**/*.ts", "src/**/*.svelte", "*.ts"]
 }

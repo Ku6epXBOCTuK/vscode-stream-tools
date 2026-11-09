@@ -1,7 +1,17 @@
 <script lang="ts">
-	import Button from "@ku6epxboctuk/ui-kit/components/Button.svelte";
+	import IconButton from "@ku6epxboctuk/ui-kit/components/IconButton.svelte";
 	import TextInput from "@ku6epxboctuk/ui-kit/components/TextInput.svelte";
 	import Notice from "@ku6epxboctuk/ui-kit/components/Notice.svelte";
+	import IconFolder from "~icons/lucide/folder";
+	import IconFolderOpen from "~icons/lucide/folder-open";
+	import IconLink from "~icons/lucide/link";
+	import IconListMusic from "~icons/lucide/list-music";
+	import IconPencil from "~icons/lucide/pencil";
+	import IconPlus from "~icons/lucide/plus";
+	import IconRadio from "~icons/lucide/radio";
+	import IconShuffle from "~icons/lucide/shuffle";
+	import IconTrash2 from "~icons/lucide/trash-2";
+	import IconVolume2 from "~icons/lucide/volume-2";
 	import type { MusicPlayer } from "../../lib/music.svelte";
 	import type { PlaylistKind } from "../../lib/types";
 	import MusicStrip from "./MusicStrip.svelte";
@@ -49,65 +59,101 @@
 {#if music.expanded}
 	<section class="music-panel">
 		<div class="music-row">
-			<label class="music-label" for="music-volume">Volume</label>
+			<IconVolume2 class="music-icon" />
 			<input
-				id="music-volume"
 				class="music-volume"
 				type="range"
 				min="0"
 				max="100"
+				aria-label="Volume"
 				value={Math.round(music.volume * 100)}
 				oninput={(event) =>
 					void music.setVolume(Number(event.currentTarget.value) / 100)}
 			/>
 			<span class="music-value">{Math.round(music.volume * 100)}%</span>
-			<Button
-				variant={music.shuffle ? "secondary" : "ghost"}
+			<IconButton
 				size="sm"
+				label="Shuffle"
+				active={music.shuffle}
 				onclick={() => void music.toggleShuffle()}
-				>Shuffle {music.shuffle ? "on" : "off"}</Button
 			>
+				<IconShuffle />
+			</IconButton>
 		</div>
 
-		<div class="music-section">Playlists</div>
+		<div class="music-section">
+			<IconListMusic class="music-icon" />
+			Playlists
+		</div>
 		<ul class="music-list">
 			{#each music.playlists as playlist, index (index)}
 				<li class="music-item" class:current={index === music.current}>
+					<span
+						class="music-kind"
+						title={playlist.type === "network_radio" ? "Radio" : "Folder"}
+					>
+						{#if playlist.type === "network_radio"}
+							<IconRadio />
+						{:else}
+							<IconFolder />
+						{/if}
+					</span>
 					<span class="music-name">{playlist.name}</span>
-					<span class="music-kind">{playlist.type === "network_radio" ? "radio" : "folder"}</span>
 					<span class="music-path" title={playlist.path}>{playlist.path}</span>
-					<Button
-						variant="ghost"
+					<IconButton
 						size="sm"
-						onclick={() => void rename(index, playlist.name)}>Rename</Button
+						label={`Rename ${playlist.name}`}
+						onclick={() => void rename(index, playlist.name)}
 					>
-					<Button
-						variant="ghost"
+						<IconPencil />
+					</IconButton>
+					<IconButton
 						size="sm"
-						onclick={() => void changePath(index, playlist.path)}>Path</Button
+						label={`Change path of ${playlist.name}`}
+						onclick={() => void changePath(index, playlist.path)}
 					>
-					<Button
-						variant="ghost"
+						{#if playlist.type === "network_radio"}
+							<IconLink />
+						{:else}
+							<IconFolderOpen />
+						{/if}
+					</IconButton>
+					<IconButton
 						size="sm"
-						title="Delete playlist"
-						onclick={() => void remove(index, playlist.name)}>Delete</Button
+						variant="danger"
+						label={`Delete ${playlist.name}`}
+						onclick={() => void remove(index, playlist.name)}
 					>
+						<IconTrash2 />
+					</IconButton>
 				</li>
 			{/each}
 		</ul>
 
 		<form class="music-add" onsubmit={add}>
-			<TextInput bind:value={name} size="sm" placeholder="Name" />
-			<select class="music-select" bind:value={kind}>
-				<option value="local_folder">Folder</option>
-				<option value="network_radio">Radio</option>
-			</select>
-			<TextInput
-				bind:value={path}
-				size="sm"
-				placeholder="C:/Music or https://..."
-			/>
-			<Button variant="secondary" size="sm" type="submit">Add</Button>
+			<div class="music-add-row">
+				<TextInput bind:value={name} size="sm" placeholder="Playlist name" />
+				<IconButton
+					size="sm"
+					label="Folder"
+					active={kind === "local_folder"}
+					onclick={() => (kind = "local_folder")}
+				>
+					<IconFolder />
+				</IconButton>
+				<IconButton
+					size="sm"
+					label="Radio"
+					active={kind === "network_radio"}
+					onclick={() => (kind = "network_radio")}
+				>
+					<IconRadio />
+				</IconButton>
+				<IconButton size="sm" variant="secondary" type="submit" label="Add playlist">
+					<IconPlus />
+				</IconButton>
+			</div>
+			<TextInput bind:value={path} size="sm" placeholder="C:/Music or https://..." />
 		</form>
 
 		{#if music.error}

@@ -10,11 +10,13 @@
 		"spike": "node spike/check.mjs"
 	},
 	"devDependencies": {
+		"@iconify-json/lucide": "^1.2.151",
 		"@sveltejs/vite-plugin-svelte": "^7.3.1",
 		"@types/node": "^24.10.1",
 		"svelte": "^5.57.3",
 		"svelte-check": "^4.7.8",
 		"typescript": "~6.0.3",
+		"unplugin-icons": "^24.0.0",
 		"vite": "^8.3.5",
 		"vitest": "^5.1.0"
 	},

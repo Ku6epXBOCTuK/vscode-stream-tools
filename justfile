@@ -54,13 +54,14 @@ ext-setup:
 
 # Install the binary and its assets into ~/bin/stream-tools
 install: backend-build frontend-build assets
+    try { Invoke-RestMethod -Method Post "http://127.0.0.1:{{port}}/api/shutdown" -TimeoutSec 3 | Out-Null } catch { }; Start-Sleep -Milliseconds 500; Get-Process -Name stream-tools -ErrorAction SilentlyContinue | Stop-Process -Force; Start-Sleep -Milliseconds 500
     New-Item -ItemType Directory -Force "{{install_dir}}/assets" | Out-Null
     Copy-Item -Recurse -Force target/release/assets/* "{{install_dir}}/assets/"
-    Copy-Item -Force target/release/stream-tools.exe "{{install_dir}}/stream-tools.exe"
+    $ok = $false; foreach ($attempt in 1..20) { try { Copy-Item -Force target/release/stream-tools.exe "{{install_dir}}/stream-tools.exe" -ErrorAction Stop; $ok = $true; break } catch { Start-Sleep -Milliseconds 300 } }; if (-not $ok) { throw "cannot replace {{install_dir}}/stream-tools.exe: close the running process and retry" }
 
 # Ask the running backend to exit
 stop:
-    Invoke-RestMethod -Method Post "http://127.0.0.1:{{port}}/api/shutdown"
+    try { Invoke-RestMethod -Method Post "http://127.0.0.1:{{port}}/api/shutdown" -TimeoutSec 3 | Out-Null } catch { }; Start-Sleep -Milliseconds 500; Get-Process -Name stream-tools -ErrorAction SilentlyContinue | Stop-Process -Force
 
 # Print the health payload of the running backend
 health:

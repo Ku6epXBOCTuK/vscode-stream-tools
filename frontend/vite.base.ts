@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
+import Icons from "unplugin-icons/vite";
 import type { UserConfig } from "vite";
 
 const root = import.meta.dirname;
@@ -24,7 +25,7 @@ export function entryConfig(
 				},
 			],
 		},
-		plugins: [svelte()],
+		plugins: [svelte(), Icons({ compiler: "svelte" })],
 		build: {
 			outDir: "../crates/app/assets/app",
 			emptyOutDir,

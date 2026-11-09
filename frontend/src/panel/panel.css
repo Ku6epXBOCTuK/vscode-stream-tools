@@ -435,16 +435,22 @@ body {
 	color: var(--vscode-textLink-foreground, var(--accent));
 }
 
-.music-dot {
+.music-state {
 	flex: 0 0 auto;
-	width: 7px;
-	height: 7px;
-	border-radius: 50%;
-	background: var(--panel-muted);
+	width: 14px;
+	height: 14px;
+	color: var(--panel-muted);
 }
 
-.music-dot[data-state="playing"] {
-	background: #3fb950;
+.music-state[data-state="playing"] {
+	color: #3fb950;
+}
+
+.music-disclosure {
+	flex: 0 0 auto;
+	width: 12px;
+	height: 12px;
+	color: var(--panel-muted);
 }
 
 .music-title {
@@ -489,8 +495,10 @@ body {
 	gap: 6px;
 }
 
-.music-label {
+.music-icon {
 	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
 	color: var(--panel-muted);
 }
 
@@ -509,6 +517,9 @@ body {
 }
 
 .music-section {
+	display: flex;
+	align-items: center;
+	gap: 4px;
 	margin-top: 2px;
 	font-size: 0.85em;
 	font-weight: 600;
@@ -550,9 +561,16 @@ body {
 }
 
 .music-kind {
+	display: flex;
 	flex: 0 0 auto;
-	font-size: 0.8em;
+	align-items: center;
+	width: 14px;
 	color: var(--panel-muted);
+}
+
+.music-kind svg {
+	width: 14px;
+	height: 14px;
 }
 
 .music-path {
@@ -567,24 +585,20 @@ body {
 
 .music-add {
 	display: flex;
-	align-items: center;
+	flex-direction: column;
 	gap: 4px;
 	margin-top: 2px;
+}
+
+.music-add-row {
+	display: flex;
+	align-items: center;
+	gap: 4px;
 }
 
 .music-add .ui-input {
 	flex: 1 1 0;
 	min-width: 0;
-}
-
-.music-select {
-	flex: 0 0 auto;
-	padding: 2px 4px;
-	border: 1px solid var(--vscode-dropdown-border, var(--panel-border));
-	background: var(--vscode-dropdown-background, var(--panel-bg));
-	color: var(--vscode-dropdown-foreground, var(--panel-fg));
-	font: inherit;
-	font-size: 0.85em;
 }
 
 .music-error {
