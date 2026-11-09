@@ -17,7 +17,7 @@ describe("resolveOverlaySettings", () => {
 	it("falls back to the defaults without a widget", () => {
 		expect(resolveOverlaySettings(params(""))).toEqual({
 			maxMessages: 12,
-			fadeSeconds: 45,
+			fadeSeconds: 0,
 			fontSize: 22,
 		});
 	});

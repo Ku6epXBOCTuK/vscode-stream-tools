@@ -2,7 +2,7 @@ import { ChatCore } from "../lib/chat.svelte";
 import { resolveOverlaySettings } from "./settings";
 
 export class OverlayChat extends ChatCore {
-	fadeSeconds = $state(45);
+	fadeSeconds = $state(0);
 	fontSize = $state(22);
 	#params: URLSearchParams;
 

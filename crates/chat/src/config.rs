@@ -31,7 +31,7 @@ impl Default for Widget {
     fn default() -> Self {
         Self {
             max_messages: 12,
-            fade_seconds: 45,
+            fade_seconds: 0,
             font_size: 22,
             show_badges: false,
         }

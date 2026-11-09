@@ -8,7 +8,7 @@ export type OverlaySettings = {
 
 const DEFAULTS = {
 	maxMessages: 12,
-	fadeSeconds: 45,
+	fadeSeconds: 0,
 	fontSize: 22,
 };
 
