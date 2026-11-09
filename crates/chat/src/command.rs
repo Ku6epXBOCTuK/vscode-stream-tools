@@ -34,11 +34,6 @@ impl Dispatcher {
             );
             return None;
         }
-        if message.user.login.eq_ignore_ascii_case(me) {
-            log::debug!("track command from the broadcaster ignored");
-            return None;
-        }
-
         let text = message.text.trim();
         let is_alias = self
             .track
@@ -184,12 +179,13 @@ mod tests {
     }
 
     #[test]
-    fn the_broadcaster_is_not_answered() {
+    fn the_broadcaster_is_answered_too() {
         let dispatcher = dispatcher(TrackCommand::default(), Some("Song"));
-        assert!(
+        assert_eq!(
             dispatcher
                 .handle(&message("streamer", "streamer", "!трек"), "streamer")
-                .is_none()
+                .as_deref(),
+            Some("Сейчас играет: Song")
         );
     }
 
