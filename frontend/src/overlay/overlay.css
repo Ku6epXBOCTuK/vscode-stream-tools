@@ -97,11 +97,6 @@ li.fixed .inner {
 	color: #ebe379;
 }
 
-.text-message.highlighted {
-	background: #4b7dad;
-	border: 3px solid #4b7dad;
-}
-
 .badges img {
 	height: 1em;
 	width: auto;

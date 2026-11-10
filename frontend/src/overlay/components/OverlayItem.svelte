@@ -48,11 +48,7 @@
 			<span class="username" style:color={message.user.color ?? undefined}
 				>{message.user.name}</span
 			>
-			<span
-				class="text-message"
-				class:reply={message.reply !== undefined}
-				class:highlighted={message.highlighted}
-			>
+			<span class="text-message" class:reply={message.reply !== undefined}>
 				<Body fragments={message.fragments} />
 			</span>
 		</span>
