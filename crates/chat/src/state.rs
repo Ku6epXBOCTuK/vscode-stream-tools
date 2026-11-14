@@ -33,6 +33,7 @@ pub enum Link {
 pub struct Activity {
     pub last_event: Option<Instant>,
     pub last_message: Option<Instant>,
+    pub reconnects: u64,
 }
 
 pub struct ChatState {
@@ -86,6 +87,14 @@ impl ChatState {
         self.lock_activity()
             .last_message
             .map(|last| last.elapsed().as_secs())
+    }
+
+    pub fn count_reconnect(&self) {
+        self.lock_activity().reconnects += 1;
+    }
+
+    pub fn reconnects(&self) -> u64 {
+        self.lock_activity().reconnects
     }
 
     pub fn uptime(&self) -> u64 {

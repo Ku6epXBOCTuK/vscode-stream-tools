@@ -152,6 +152,7 @@ pub struct Info {
     pub widget: Widget,
     pub eventsub: Link,
     pub messages: u64,
+    pub reconnects: u64,
 }
 
 impl Info {
@@ -165,6 +166,7 @@ impl Info {
             widget: config.widget.clone(),
             eventsub: *state.eventsub.read().await,
             messages: state.store.last_seq(),
+            reconnects: state.reconnects(),
         }
     }
 }
@@ -501,6 +503,7 @@ pub async fn events(
         "eventsub": *state.eventsub.read().await,
         "last_seq": state.store.last_seq(),
         "last_event_seconds": state.since_event(),
+        "reconnects": state.reconnects(),
     });
 
     let stream = async_stream::stream! {
@@ -530,6 +533,7 @@ pub async fn events(
                         "last_seq": state.store.last_seq(),
                         "eventsub": *state.eventsub.read().await,
                         "last_event_seconds": state.since_event(),
+                        "reconnects": state.reconnects(),
                     });
                     let event = Event::default().event("ping").json_data(ping);
                     if let Ok(event) = event {

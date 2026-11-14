@@ -1,15 +1,20 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
+use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message as Ws;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use twitch_api::eventsub::channel::chat::{Fragment, message::MessageType};
 use twitch_api::eventsub::channel::{
     ChannelChatClearUserMessagesV1, ChannelChatClearV1, ChannelChatMessageDeleteV1,
     ChannelChatMessageV1, ChannelChatMessageV1Payload, ChannelChatNotificationV1, ChannelCheerV1,
     ChannelFollowV2, ChannelPointsCustomRewardRedemptionAddV1, ChannelRaidV1, ChannelSubscribeV1,
 };
-use twitch_api::eventsub::{Event, EventsubWebsocketData, Message as EsMessage, Transport};
+use twitch_api::eventsub::{
+    Event, EventSubscription, EventType, EventsubWebsocketData, Message as EsMessage, Transport,
+};
 use twitch_api::helix::users::GetUsersRequest;
 use twitch_api::types::UserId;
 use twitch_oauth2::UserToken;
@@ -20,11 +25,37 @@ use crate::{ChatState, Link};
 
 const WS_URL: &str = "wss://eventsub.wss.twitch.tv/ws";
 const MAX_BACKOFF_SECS: u64 = 30;
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
+const WELCOME_TIMEOUT: Duration = Duration::from_secs(10);
+const DRAIN_QUIET: Duration = Duration::from_millis(300);
+const KEEPALIVE_GRACE_SECS: u64 = 5;
+const DEFAULT_KEEPALIVE_SECS: u64 = 10;
+
+const CRITICAL_TYPES: [EventType; 5] = [
+    ChannelChatMessageV1::EVENT_TYPE,
+    ChannelChatClearV1::EVENT_TYPE,
+    ChannelChatClearUserMessagesV1::EVENT_TYPE,
+    ChannelChatMessageDeleteV1::EVENT_TYPE,
+    ChannelChatNotificationV1::EVENT_TYPE,
+];
 
 enum SessionEnd {
-    Reconnect(String),
     Closed,
     Restart,
+}
+
+struct SessionError {
+    message: String,
+    established: bool,
+}
+
+type Socket = WebSocketStream<MaybeTlsStream<TcpStream>>;
+
+struct Conn {
+    sink: SplitSink<Socket, Ws>,
+    source: SplitStream<Socket>,
+    session_id: String,
+    keepalive_secs: u64,
 }
 
 pub fn spawn(state: Arc<ChatState>) {
@@ -33,7 +64,6 @@ pub fn spawn(state: Arc<ChatState>) {
 
 async fn run(state: Arc<ChatState>) {
     let mut backoff = 1;
-    let mut reconnect_url: Option<String> = None;
 
     loop {
         if state.shutdown.is_cancelled() {
@@ -50,19 +80,9 @@ async fn run(state: Arc<ChatState>) {
 
         set_link(&state, Link::Connecting).await;
 
-        let (url, fresh) = match reconnect_url.take() {
-            Some(url) => (url, false),
-            None => (WS_URL.to_string(), true),
-        };
-
-        match session(&state, &token, &url, fresh).await {
-            Ok(SessionEnd::Reconnect(url)) => {
-                reconnect_url = Some(url);
-                backoff = 1;
-            }
+        match session(&state, &token).await {
             Ok(SessionEnd::Restart) => {
                 log::info!("eventsub session dropped on request");
-                reconnect_url = None;
                 backoff = 1;
             }
             Ok(SessionEnd::Closed) => {
@@ -73,8 +93,11 @@ async fn run(state: Arc<ChatState>) {
                 }
             }
             Err(err) => {
-                log::warn!("eventsub: {err}");
+                log::warn!("eventsub: {}", err.message);
                 set_link(&state, Link::Offline).await;
+                if err.established {
+                    backoff = 1;
+                }
                 if !wait(&state, backoff).await {
                     return;
                 }
@@ -84,23 +107,47 @@ async fn run(state: Arc<ChatState>) {
     }
 }
 
-async fn session(
+async fn session(state: &Arc<ChatState>, token: &UserToken) -> Result<SessionEnd, SessionError> {
+    let mut established = false;
+    match run_session(state, token, &mut established).await {
+        Ok(end) => Ok(end),
+        Err(message) => Err(SessionError {
+            message,
+            established,
+        }),
+    }
+}
+
+async fn run_session(
     state: &Arc<ChatState>,
     token: &UserToken,
-    url: &str,
-    subscribe: bool,
+    established: &mut bool,
 ) -> Result<SessionEnd, String> {
-    let (stream, _) = tokio_tungstenite::connect_async(url)
-        .await
-        .map_err(|err| format!("cannot connect to {url}: {err}"))?;
-    let (mut sink, mut source) = stream.split();
-    log::debug!("eventsub connected to {url}");
+    let mut conn = open(WS_URL).await?;
+    *established = true;
+    log::info!("eventsub session {}", conn.session_id);
+    set_link(state, Link::Connected).await;
+
+    match subscribe_all(state, &conn.session_id).await {
+        Ok(count) => {
+            log::info!("subscribed to {count} event types");
+            crate::auth::push_notice(state, "Connected to chat".to_string());
+        }
+        Err(err) => return Err(err),
+    }
 
     loop {
+        let idle = Duration::from_secs(conn.keepalive_secs + KEEPALIVE_GRACE_SECS);
         let message = tokio::select! {
             _ = state.shutdown.cancelled() => return Ok(SessionEnd::Closed),
             _ = state.reconnect.notified() => return Ok(SessionEnd::Restart),
-            next = source.next() => next,
+            next = conn.source.next() => next,
+            _ = tokio::time::sleep(idle) => {
+                return Err(format!(
+                    "no frame for {}s, the connection is dead",
+                    idle.as_secs()
+                ));
+            }
         };
 
         let Some(message) = message else {
@@ -114,7 +161,8 @@ async fn session(
                 return Ok(SessionEnd::Closed);
             }
             Ws::Ping(payload) => {
-                sink.send(Ws::Pong(payload))
+                conn.sink
+                    .send(Ws::Pong(payload))
                     .await
                     .map_err(|err| format!("cannot answer ping: {err}"))?;
                 continue;
@@ -123,41 +171,278 @@ async fn session(
         };
 
         state.touch_event();
-        let data = Event::parse_websocket(text.as_str())
-            .map_err(|err| format!("cannot parse payload: {err}"))?;
+        let data = match Event::parse_websocket(text.as_str()) {
+            Ok(data) => data,
+            Err(err) => {
+                log::warn!("eventsub: cannot parse a frame: {err}");
+                continue;
+            }
+        };
 
         match data {
             EventsubWebsocketData::Welcome { payload, .. } => {
-                let session_id = payload.session.id.to_string();
-                log::info!("eventsub session {session_id}");
-                set_link(state, Link::Connected).await;
-
-                if subscribe {
-                    match subscribe_all(state, &session_id).await {
-                        Ok(count) => {
-                            log::info!("subscribed to {count} event types");
-                            crate::auth::push_notice(state, "Connected to chat".to_string());
-                        }
-                        Err(err) => log::error!("eventsub: {err}"),
-                    }
-                } else {
-                    crate::auth::push_notice(state, "Reconnected to chat".to_string());
-                }
+                log::debug!("eventsub session {} welcomed twice", payload.session.id);
             }
             EventsubWebsocketData::Keepalive { .. } => {}
             EventsubWebsocketData::Notification { payload, .. } => {
                 on_event(state, token, payload).await;
             }
             EventsubWebsocketData::Reconnect { payload, .. } => {
-                if let Some(url) = payload.session.reconnect_url {
-                    log::info!("eventsub asked to reconnect");
-                    return Ok(SessionEnd::Reconnect(url.to_string()));
+                let Some(url) = payload.session.reconnect_url else {
+                    log::warn!("eventsub asked to reconnect without a url");
+                    continue;
+                };
+                log::info!("eventsub asked to reconnect");
+                let next = open(url.as_ref())
+                    .await
+                    .map_err(|err| format!("cannot follow the reconnect url: {err}"))?;
+                log::info!("eventsub session {}", next.session_id);
+                let carried = carry_over(state, token, &next.session_id).await;
+                drain(state, token, &mut conn).await;
+                if !carried {
+                    return Err("the reconnected session has no subscriptions".to_string());
                 }
+                conn = next;
+                state.count_reconnect();
+                crate::auth::push_notice(state, "Reconnected to chat".to_string());
             }
             EventsubWebsocketData::Revocation { .. } => {
                 log::warn!("eventsub revoked a subscription, signing in again may help");
             }
             _ => {}
+        }
+    }
+}
+
+async fn open(url: &str) -> Result<Conn, String> {
+    let (stream, _) = tokio::time::timeout(CONNECT_TIMEOUT, tokio_tungstenite::connect_async(url))
+        .await
+        .map_err(|_| format!("cannot connect within {}s", CONNECT_TIMEOUT.as_secs()))?
+        .map_err(|err| format!("cannot connect: {err}"))?;
+    let (mut sink, mut source) = stream.split();
+
+    tokio::time::timeout(WELCOME_TIMEOUT, async move {
+        loop {
+            let Some(message) = source.next().await else {
+                return Err("eventsub closed before the welcome message".to_string());
+            };
+            match message.map_err(|err| format!("websocket error: {err}"))? {
+                Ws::Text(text) => match Event::parse_websocket(text.as_str()) {
+                    Ok(EventsubWebsocketData::Welcome { payload, .. }) => {
+                        let keepalive_secs = payload
+                            .session
+                            .keepalive_timeout_seconds
+                            .and_then(|secs| u64::try_from(secs).ok())
+                            .unwrap_or(DEFAULT_KEEPALIVE_SECS);
+                        return Ok(Conn {
+                            sink,
+                            source,
+                            session_id: payload.session.id.to_string(),
+                            keepalive_secs,
+                        });
+                    }
+                    Ok(_) => {}
+                    Err(err) => return Err(format!("cannot parse the welcome message: {err}")),
+                },
+                Ws::Ping(payload) => {
+                    sink.send(Ws::Pong(payload))
+                        .await
+                        .map_err(|err| format!("cannot answer ping: {err}"))?;
+                }
+                Ws::Close(frame) => return Err(format!("eventsub closed: {frame:?}")),
+                _ => {}
+            }
+        }
+    })
+    .await
+    .map_err(|_| {
+        format!(
+            "the welcome message did not arrive within {}s",
+            WELCOME_TIMEOUT.as_secs()
+        )
+    })?
+}
+
+async fn drain(state: &Arc<ChatState>, token: &UserToken, conn: &mut Conn) {
+    let mut kept = 0;
+    loop {
+        let next = tokio::time::timeout(DRAIN_QUIET, conn.source.next()).await;
+        let Ok(Some(Ok(message))) = next else {
+            break;
+        };
+        match message {
+            Ws::Text(text) => match Event::parse_websocket(text.as_str()) {
+                Ok(EventsubWebsocketData::Notification { payload, .. }) => {
+                    state.touch_event();
+                    on_event(state, token, payload).await;
+                    kept += 1;
+                }
+                Ok(_) => {}
+                Err(err) => log::debug!("eventsub: cannot parse a leftover frame: {err}"),
+            },
+            Ws::Ping(payload) => {
+                let _ = conn.sink.send(Ws::Pong(payload)).await;
+            }
+            Ws::Close(_) => break,
+            _ => {}
+        }
+    }
+    if kept > 0 {
+        log::info!("eventsub kept {kept} events from the old session");
+    }
+}
+
+async fn carry_over(state: &Arc<ChatState>, token: &UserToken, session_id: &str) -> bool {
+    let Some(found) = session_types(state, token, session_id).await else {
+        return true;
+    };
+
+    let missing: Vec<EventType> = CRITICAL_TYPES
+        .iter()
+        .filter(|kind| !found.contains(kind))
+        .copied()
+        .collect();
+    if missing.is_empty() {
+        log::info!(
+            "eventsub carried over {} subscriptions",
+            CRITICAL_TYPES.len()
+        );
+        return true;
+    }
+
+    log::warn!(
+        "eventsub carried over {} of {} subscriptions, resubscribing",
+        CRITICAL_TYPES.len() - missing.len(),
+        CRITICAL_TYPES.len()
+    );
+    let Ok(broadcaster) = resolve_broadcaster(state).await else {
+        log::warn!("eventsub: cannot resubscribe without the channel id");
+        return false;
+    };
+    let Ok(fresh) = crate::twitch::token(state).await else {
+        log::warn!("eventsub: cannot resubscribe without a token");
+        return false;
+    };
+    let transport = Transport::websocket(session_id);
+    let subscriptions: Vec<Core> = Core::build(&broadcaster, &fresh.user_id)
+        .into_iter()
+        .filter(|subscription| missing.contains(&subscription.event_type()))
+        .collect();
+
+    match subscribe_critical(state, &fresh, &transport, &subscriptions).await {
+        Ok(count) => {
+            log::info!("eventsub resubscribed {count} event types");
+            true
+        }
+        Err(err) => {
+            log::warn!("eventsub: cannot resubscribe: {err}");
+            false
+        }
+    }
+}
+
+async fn session_types(
+    state: &Arc<ChatState>,
+    token: &UserToken,
+    session_id: &str,
+) -> Option<Vec<EventType>> {
+    let mut kinds = Vec::new();
+    let mut pages =
+        state
+            .helix
+            .get_eventsub_subscriptions(None, None, Some(token.user_id.as_ref()), token);
+
+    while let Some(page) = pages.next().await {
+        match page {
+            Ok(page) => {
+                for subscription in page.subscriptions {
+                    if let Some(transport) = subscription.transport.as_websocket()
+                        && transport.session_id == session_id
+                    {
+                        kinds.push(subscription.type_);
+                    }
+                }
+            }
+            Err(err) => {
+                log::warn!("eventsub: cannot list subscriptions: {err}");
+                return None;
+            }
+        }
+    }
+
+    Some(kinds)
+}
+
+enum Core {
+    Message(ChannelChatMessageV1),
+    Clear(ChannelChatClearV1),
+    ClearUser(ChannelChatClearUserMessagesV1),
+    Delete(ChannelChatMessageDeleteV1),
+    Notification(ChannelChatNotificationV1),
+}
+
+impl Core {
+    fn build(broadcaster: &UserId, user: &UserId) -> Vec<Self> {
+        vec![
+            Self::Message(ChannelChatMessageV1::new(broadcaster.clone(), user.clone())),
+            Self::Clear(ChannelChatClearV1::new(broadcaster.clone(), user.clone())),
+            Self::ClearUser(ChannelChatClearUserMessagesV1::new(
+                broadcaster.clone(),
+                user.clone(),
+            )),
+            Self::Delete(ChannelChatMessageDeleteV1::new(
+                broadcaster.clone(),
+                user.clone(),
+            )),
+            Self::Notification(ChannelChatNotificationV1::new(
+                broadcaster.clone(),
+                user.clone(),
+            )),
+        ]
+    }
+
+    fn event_type(&self) -> EventType {
+        match self {
+            Self::Message(_) => ChannelChatMessageV1::EVENT_TYPE,
+            Self::Clear(_) => ChannelChatClearV1::EVENT_TYPE,
+            Self::ClearUser(_) => ChannelChatClearUserMessagesV1::EVENT_TYPE,
+            Self::Delete(_) => ChannelChatMessageDeleteV1::EVENT_TYPE,
+            Self::Notification(_) => ChannelChatNotificationV1::EVENT_TYPE,
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Message(_) => "channel.chat.message",
+            Self::Clear(_) => "channel.chat.clear",
+            Self::ClearUser(_) => "channel.chat.clear_user_messages",
+            Self::Delete(_) => "channel.chat.message_delete",
+            Self::Notification(_) => "channel.chat.notification",
+        }
+    }
+
+    async fn create(
+        &self,
+        state: &Arc<ChatState>,
+        token: &UserToken,
+        transport: &Transport,
+    ) -> Result<(), String> {
+        match self {
+            Self::Message(subscription) => {
+                subscribe(state, token, transport, subscription.clone()).await
+            }
+            Self::Clear(subscription) => {
+                subscribe(state, token, transport, subscription.clone()).await
+            }
+            Self::ClearUser(subscription) => {
+                subscribe(state, token, transport, subscription.clone()).await
+            }
+            Self::Delete(subscription) => {
+                subscribe(state, token, transport, subscription.clone()).await
+            }
+            Self::Notification(subscription) => {
+                subscribe(state, token, transport, subscription.clone()).await
+            }
         }
     }
 }
@@ -172,74 +457,89 @@ async fn subscribe_all(state: &Arc<ChatState>, session_id: &str) -> Result<usize
     let user = token.user_id.clone();
     let token = &token;
     let transport = Transport::websocket(session_id);
-    let mut count = 0;
 
-    subscribe(
-        state,
-        token,
-        &transport,
-        ChannelChatMessageV1::new(broadcaster.clone(), user.clone()),
-    )
-    .await?;
-    subscribe(
-        state,
-        token,
-        &transport,
-        ChannelChatClearV1::new(broadcaster.clone(), user.clone()),
-    )
-    .await?;
-    subscribe(
-        state,
-        token,
-        &transport,
-        ChannelChatClearUserMessagesV1::new(broadcaster.clone(), user.clone()),
-    )
-    .await?;
-    subscribe(
-        state,
-        token,
-        &transport,
-        ChannelChatMessageDeleteV1::new(broadcaster.clone(), user.clone()),
-    )
-    .await?;
-    subscribe(
-        state,
-        token,
-        &transport,
-        ChannelChatNotificationV1::new(broadcaster.clone(), user.clone()),
-    )
-    .await?;
-    count += 5;
+    let core = Core::build(&broadcaster, &user);
+    let mut count = subscribe_critical(state, token, &transport, &core).await?;
 
     let follow = ChannelFollowV2::new(broadcaster.clone(), user.clone());
-    if subscribe(state, token, &transport, follow).await.is_ok() {
-        count += 1;
-    }
+    count += optional(state, token, &transport, "channel.follow", follow).await;
 
     let points = ChannelPointsCustomRewardRedemptionAddV1::broadcaster_user_id(broadcaster.clone());
-    if subscribe(state, token, &transport, points).await.is_ok() {
-        count += 1;
-    }
+    count += optional(
+        state,
+        token,
+        &transport,
+        "channel.channel_points_custom_reward_redemption.add",
+        points,
+    )
+    .await;
 
     let cheer = ChannelCheerV1::broadcaster_user_id(broadcaster.clone());
-    if subscribe(state, token, &transport, cheer).await.is_ok() {
-        count += 1;
-    }
+    count += optional(state, token, &transport, "channel.cheer", cheer).await;
 
     let raid = ChannelRaidV1::to_broadcaster_user_id(broadcaster.clone());
-    if subscribe(state, token, &transport, raid).await.is_ok() {
-        count += 1;
-    }
+    count += optional(state, token, &transport, "channel.raid", raid).await;
 
-    let subscribe_event = ChannelSubscribeV1::broadcaster_user_id(broadcaster);
-    if subscribe(state, token, &transport, subscribe_event)
-        .await
-        .is_ok()
-    {
-        count += 1;
-    }
+    let subscribed = ChannelSubscribeV1::broadcaster_user_id(broadcaster);
+    count += optional(state, token, &transport, "channel.subscribe", subscribed).await;
 
     Ok(count)
+}
+
+async fn subscribe_critical(
+    state: &Arc<ChatState>,
+    token: &UserToken,
+    transport: &Transport,
+    subscriptions: &[Core],
+) -> Result<usize, String> {
+    let mut created = 0;
+    let mut errors = Vec::new();
+
+    for subscription in subscriptions {
+        match subscription.create(state, token, transport).await {
+            Ok(()) => created += 1,
+            Err(err) => {
+                log::warn!(
+                    "eventsub: cannot subscribe to {}: {err}",
+                    subscription.name()
+                );
+                errors.push(subscription.name());
+            }
+        }
+    }
+
+    if created == 0 {
+        let names = errors.join(", ");
+        return Err(format!("no chat subscription was created: {names}"));
+    }
+    if !errors.is_empty() {
+        log::warn!(
+            "eventsub: {} of {} core subscriptions failed",
+            errors.len(),
+            subscriptions.len()
+        );
+    }
+
+    Ok(created)
+}
+
+async fn optional<S>(
+    state: &Arc<ChatState>,
+    token: &UserToken,
+    transport: &Transport,
+    name: &str,
+    subscription: S,
+) -> usize
+where
+    S: EventSubscription + Send,
+{
+    match subscribe(state, token, transport, subscription).await {
+        Ok(()) => 1,
+        Err(err) => {
+            log::warn!("eventsub: cannot subscribe to {name}: {err}");
+            0
+        }
+    }
 }
 
 async fn subscribe<S>(
@@ -249,7 +549,7 @@ async fn subscribe<S>(
     subscription: S,
 ) -> Result<(), String>
 where
-    S: twitch_api::eventsub::EventSubscription + Send,
+    S: EventSubscription + Send,
 {
     state
         .helix
@@ -635,5 +935,21 @@ async fn wait(state: &Arc<ChatState>, secs: u64) -> bool {
     tokio::select! {
         _ = state.shutdown.cancelled() => false,
         _ = tokio::time::sleep(Duration::from_secs(secs)) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_core_subscriptions_cover_every_critical_type() {
+        let user = UserId::from_static("1");
+        let kinds: Vec<EventType> = Core::build(&user, &user)
+            .iter()
+            .map(Core::event_type)
+            .collect();
+
+        assert_eq!(kinds, CRITICAL_TYPES);
     }
 }
