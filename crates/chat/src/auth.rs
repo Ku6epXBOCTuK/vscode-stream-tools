@@ -306,7 +306,7 @@ pub async fn refresh(state: &Arc<ChatState>, reason: &str) -> Result<UserToken, 
 
     log::info!("refreshing the token: {reason}");
     if let Err(err) = token.refresh_token(&state.http).await {
-        log::error!("cannot refresh the token: {err:?}");
+        log::error!("cannot refresh the token: {err}");
         return Err(format!("cannot refresh the token: {err}"));
     }
 

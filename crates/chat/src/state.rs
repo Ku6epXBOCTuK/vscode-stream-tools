@@ -29,6 +29,16 @@ pub enum Link {
     Connected,
 }
 
+impl Link {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Link::Offline => "offline",
+            Link::Connecting => "connecting",
+            Link::Connected => "connected",
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Activity {
     pub last_event: Option<Instant>,

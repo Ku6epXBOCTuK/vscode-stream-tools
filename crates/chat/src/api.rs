@@ -367,7 +367,8 @@ pub async fn send_message(
             .drop_reason
             .map(|reason| reason.message)
             .unwrap_or_else(|| "message was not delivered".to_string());
-        log::warn!("message dropped: {reason}");
+        let channel = state.config.read().await.channel.clone();
+        log::warn!("message to #{channel} was dropped: {reason}");
         return Err((StatusCode::BAD_GATEWAY, Json(json!({ "error": reason }))));
     }
 
@@ -452,7 +453,15 @@ pub async fn timeout_user(
     let (token, broadcaster) = twitch_context(&state, "moderate").await?;
     let reason = body.reason.unwrap_or_default();
     let outgoing = BanUserBody::new(body.user_id.as_str(), reason.as_str(), Some(body.duration));
-    ban(&state, &token, broadcaster, outgoing, body.duration).await
+    ban(
+        &state,
+        &token,
+        broadcaster,
+        outgoing,
+        body.duration,
+        body.user_id.as_str(),
+    )
+    .await
 }
 
 pub async fn ban_user(
@@ -466,7 +475,15 @@ pub async fn ban_user(
     let (token, broadcaster) = twitch_context(&state, "moderate").await?;
     let reason = body.reason.unwrap_or_default();
     let outgoing = BanUserBody::new(body.user_id.as_str(), reason.as_str(), None);
-    ban(&state, &token, broadcaster, outgoing, 0).await
+    ban(
+        &state,
+        &token,
+        broadcaster,
+        outgoing,
+        0,
+        body.user_id.as_str(),
+    )
+    .await
 }
 
 async fn ban(
@@ -475,16 +492,21 @@ async fn ban(
     broadcaster: UserId,
     outgoing: BanUserBody<'_>,
     duration: u32,
+    target: &str,
 ) -> ApiResult<Json<Value>> {
     let request = BanUserRequest::new(broadcaster, token.user_id.clone());
     match twitch::post(state, request, outgoing).await {
         Ok(_) => {
+            if duration == 0 {
+                log::debug!("banned {target}");
+            } else {
+                log::debug!("timed out {target} for {duration} seconds");
+            }
             let text = if duration == 0 {
                 "A user was banned".to_string()
             } else {
                 format!("A user was timed out for {duration} seconds")
             };
-            log::debug!("{text}");
             push_local(state, chat::KIND_NOTICE, &text, None);
             Ok(Json(json!({ "ok": true })))
         }

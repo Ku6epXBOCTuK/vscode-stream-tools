@@ -35,6 +35,18 @@ pub enum Command {
     SwitchTo(usize),
 }
 
+impl Command {
+    fn label(&self) -> String {
+        match self {
+            Command::NextPlaylist => "next playlist".to_string(),
+            Command::PrevPlaylist => "previous playlist".to_string(),
+            Command::NextTrack => "next track".to_string(),
+            Command::ToggleShuffle => "shuffle".to_string(),
+            Command::SwitchTo(index) => format!("playlist {index}"),
+        }
+    }
+}
+
 // NOTE: the supervisor resolves a command into an intent, so the player
 // reacts wherever it is parked instead of only between tracks
 #[derive(Clone, Copy, Debug)]
@@ -196,10 +208,13 @@ async fn supervise(
             }
             Command::NextTrack => {
                 if on_radio(&playlists, &state) {
-                    log::debug!("command NextTrack: next track has no effect on a live stream");
+                    log::debug!(
+                        "command {}: next track has no effect on a live stream",
+                        cmd.label()
+                    );
                     continue;
                 }
-                log::info!("command NextTrack: skipping the current track");
+                log::info!("command {}: skipping the current track", cmd.label());
                 let _ = intents.send(Intent::SkipTrack);
                 cancel_current(&cancel_slot);
             }
@@ -209,12 +224,12 @@ async fn supervise(
                 } else {
                     Intent::PrevPlaylist
                 };
-                log::info!("command {cmd:?}: playlist switch requested");
+                log::info!("command {}: playlist switch requested", cmd.label());
                 let _ = intents.send(intent);
                 cancel_current(&cancel_slot);
             }
             Command::SwitchTo(index) => {
-                log::info!("command SwitchTo({index}): playlist switch requested");
+                log::info!("command {}: playlist switch requested", cmd.label());
                 let _ = intents.send(Intent::SwitchTo(index));
                 cancel_current(&cancel_slot);
             }

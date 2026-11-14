@@ -5,6 +5,7 @@ use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message as Ws;
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use twitch_api::eventsub::channel::chat::{Fragment, message::MessageType};
 use twitch_api::eventsub::channel::{
@@ -71,14 +72,14 @@ async fn run(state: Arc<ChatState>) {
         }
 
         let Some(token) = state.token.read().await.clone() else {
-            set_link(&state, Link::Offline).await;
+            set_link(&state, Link::Offline, "no token, sign-in is needed").await;
             if !wait(&state, 3).await {
                 return;
             }
             continue;
         };
 
-        set_link(&state, Link::Connecting).await;
+        set_link(&state, Link::Connecting, "opening the eventsub socket").await;
 
         match session(&state, &token).await {
             Ok(SessionEnd::Restart) => {
@@ -86,7 +87,7 @@ async fn run(state: Arc<ChatState>) {
                 backoff = 1;
             }
             Ok(SessionEnd::Closed) => {
-                set_link(&state, Link::Offline).await;
+                set_link(&state, Link::Offline, "the session closed").await;
                 backoff = 1;
                 if !wait(&state, 1).await {
                     return;
@@ -94,7 +95,7 @@ async fn run(state: Arc<ChatState>) {
             }
             Err(err) => {
                 log::warn!("eventsub: {}", err.message);
-                set_link(&state, Link::Offline).await;
+                set_link(&state, Link::Offline, &err.message).await;
                 if err.established {
                     backoff = 1;
                 }
@@ -126,11 +127,14 @@ async fn run_session(
     let mut conn = open(WS_URL).await?;
     *established = true;
     log::info!("eventsub session {}", conn.session_id);
-    set_link(state, Link::Connected).await;
+    set_link(state, Link::Connected, "the welcome message arrived").await;
 
     match subscribe_all(state, &conn.session_id).await {
         Ok(count) => {
-            log::info!("subscribed to {count} event types");
+            log::info!(
+                "eventsub subscribed to {count} event types on session {}",
+                conn.session_id
+            );
             crate::auth::push_notice(state, "Connected to chat".to_string());
         }
         Err(err) => return Err(err),
@@ -157,7 +161,7 @@ async fn run_session(
         let text = match message.map_err(|err| format!("websocket error: {err}"))? {
             Ws::Text(text) => text,
             Ws::Close(frame) => {
-                log::info!("eventsub closed: {frame:?}");
+                log::info!("eventsub closed by Twitch {}", close_reason(frame));
                 return Ok(SessionEnd::Closed);
             }
             Ws::Ping(payload) => {
@@ -249,7 +253,12 @@ async fn open(url: &str) -> Result<Conn, String> {
                         .await
                         .map_err(|err| format!("cannot answer ping: {err}"))?;
                 }
-                Ws::Close(frame) => return Err(format!("eventsub closed: {frame:?}")),
+                Ws::Close(frame) => {
+                    return Err(format!(
+                        "eventsub closed by Twitch before the welcome {}",
+                        close_reason(frame)
+                    ));
+                }
                 _ => {}
             }
         }
@@ -923,10 +932,22 @@ fn notice_user() -> User {
     )
 }
 
-async fn set_link(state: &Arc<ChatState>, link: Link) {
+fn close_reason(frame: Option<CloseFrame>) -> String {
+    let Some(frame) = frame else {
+        return "without a close frame".to_string();
+    };
+    let code = u16::from(frame.code);
+    if frame.reason.is_empty() {
+        format!("with code {code}")
+    } else {
+        format!("with code {code}: {}", frame.reason)
+    }
+}
+
+async fn set_link(state: &Arc<ChatState>, link: Link, reason: &str) {
     let mut current = state.eventsub.write().await;
     if *current != link {
-        log::info!("eventsub status: {link:?}");
+        log::info!("eventsub status: {} ({reason})", link.as_str());
         *current = link;
     }
 }
