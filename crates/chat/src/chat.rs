@@ -53,6 +53,11 @@ pub enum Fragment {
         text: String,
         id: String,
     },
+    Gif {
+        text: String,
+        id: String,
+        url: String,
+    },
     Cheermote {
         text: String,
         prefix: String,

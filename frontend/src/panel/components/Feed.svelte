@@ -9,11 +9,15 @@
 	let follow = $state(true);
 	let jumping = false;
 
-	$effect(() => {
-		chat.history.entries.length;
+	function stick(): void {
 		if (follow && feed) {
 			feed.scrollTop = feed.scrollHeight;
 		}
+	}
+
+	$effect(() => {
+		chat.history.entries.length;
+		stick();
 	});
 
 	function gap(): number {
@@ -52,6 +56,8 @@
 		class="feed"
 		bind:this={feed}
 		onscroll={syncFollow}
+		onloadcapture={stick}
+		onerrorcapture={stick}
 		role="log"
 		aria-live="polite"
 	>

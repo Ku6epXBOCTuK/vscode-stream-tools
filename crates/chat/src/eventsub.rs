@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -158,8 +159,8 @@ async fn run_session(
             return Ok(SessionEnd::Closed);
         };
 
-        let text = match message.map_err(|err| format!("websocket error: {err}"))? {
-            Ws::Text(text) => text,
+        let mut text = match message.map_err(|err| format!("websocket error: {err}"))? {
+            Ws::Text(text) => text.to_string(),
             Ws::Close(frame) => {
                 log::info!("eventsub closed by Twitch {}", close_reason(frame));
                 return Ok(SessionEnd::Closed);
@@ -175,8 +176,8 @@ async fn run_session(
         };
 
         state.touch_event();
-        let data = match Event::parse_websocket(text.as_str()) {
-            Ok(data) => data,
+        let (data, gifs) = match parse_frame(&mut text) {
+            Ok(frame) => frame,
             Err(err) => {
                 log::warn!("eventsub: cannot parse a frame: {err}");
                 continue;
@@ -189,7 +190,7 @@ async fn run_session(
             }
             EventsubWebsocketData::Keepalive { .. } => {}
             EventsubWebsocketData::Notification { payload, .. } => {
-                on_event(state, token, payload).await;
+                on_event(state, token, payload, &gifs).await;
             }
             EventsubWebsocketData::Reconnect { payload, .. } => {
                 let Some(url) = payload.session.reconnect_url else {
@@ -280,15 +281,18 @@ async fn drain(state: &Arc<ChatState>, token: &UserToken, conn: &mut Conn) {
             break;
         };
         match message {
-            Ws::Text(text) => match Event::parse_websocket(text.as_str()) {
-                Ok(EventsubWebsocketData::Notification { payload, .. }) => {
-                    state.touch_event();
-                    on_event(state, token, payload).await;
-                    kept += 1;
+            Ws::Text(raw) => {
+                let mut text = raw.to_string();
+                match parse_frame(&mut text) {
+                    Ok((EventsubWebsocketData::Notification { payload, .. }, gifs)) => {
+                        state.touch_event();
+                        on_event(state, token, payload, &gifs).await;
+                        kept += 1;
+                    }
+                    Ok(_) => {}
+                    Err(err) => log::debug!("eventsub: cannot parse a leftover frame: {err}"),
                 }
-                Ok(_) => {}
-                Err(err) => log::debug!("eventsub: cannot parse a leftover frame: {err}"),
-            },
+            }
             Ws::Ping(payload) => {
                 let _ = conn.sink.send(Ws::Pong(payload)).await;
             }
@@ -602,7 +606,90 @@ pub async fn resolve_broadcaster(state: &Arc<ChatState>) -> Result<UserId, Resol
         .ok_or(ResolveError::NotFound(channel))
 }
 
-async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event) {
+#[derive(Clone)]
+struct Gif {
+    id: String,
+    url: String,
+}
+
+type Gifs = HashMap<String, HashMap<usize, Gif>>;
+
+const KNOWN_FRAGMENTS: [&str; 4] = ["text", "emote", "cheermote", "mention"];
+
+fn parse_frame(text: &mut String) -> Result<(EventsubWebsocketData<'_>, Gifs), String> {
+    match Event::parse_websocket(text.as_str()) {
+        Ok(data) => Ok((data, Gifs::new())),
+        Err(err) => {
+            let Some((patched, gifs)) = rewrite_fragments(text.as_str()) else {
+                return Err(err.to_string());
+            };
+            *text = patched;
+            match Event::parse_websocket(text.as_str()) {
+                Ok(data) => {
+                    log::debug!("eventsub: recovered a frame after rewriting its fragments");
+                    Ok((data, gifs))
+                }
+                Err(err) => Err(err.to_string()),
+            }
+        }
+    }
+}
+
+// NOTE: twitch_api rejects the whole notification on an unknown fragment type, and Twitch adds them without warning
+fn rewrite_fragments(text: &str) -> Option<(String, Gifs)> {
+    let mut root: serde_json::Value = serde_json::from_str(text).ok()?;
+    let event = root.get_mut("payload")?.get_mut("event")?;
+    let message_id = event.get("message_id")?.as_str()?.to_string();
+    let fragments = event
+        .get_mut("message")?
+        .get_mut("fragments")?
+        .as_array_mut()?;
+
+    let mut found: HashMap<usize, Gif> = HashMap::new();
+    let mut changed = false;
+    for (index, fragment) in fragments.iter_mut().enumerate() {
+        let kind = fragment
+            .get("type")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        if kind == "gif"
+            && let Some(gif) = fragment.get("gif")
+            && let (Some(id), Some(url)) = (
+                gif.get("id").and_then(|value| value.as_str()),
+                gif.get("url").and_then(|value| value.as_str()),
+            )
+        {
+            found.insert(
+                index,
+                Gif {
+                    id: id.to_string(),
+                    url: url.to_string(),
+                },
+            );
+        }
+        if !KNOWN_FRAGMENTS.contains(&kind) {
+            let text = fragment
+                .get("text")
+                .and_then(|value| value.as_str())
+                .unwrap_or_default()
+                .to_string();
+            *fragment = serde_json::json!({ "type": "text", "text": text });
+            changed = true;
+        }
+    }
+    if !changed {
+        return None;
+    }
+
+    let mut gifs = Gifs::new();
+    if !found.is_empty() {
+        gifs.insert(message_id, found);
+    }
+    let patched = serde_json::to_string(&root).ok()?;
+    Some((patched, gifs))
+}
+
+async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event, gifs: &Gifs) {
     let me = token.login.to_string();
     let channel = state.config.read().await.channel.clone();
 
@@ -612,7 +699,12 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event) {
                 return;
             };
 
-            let mut chat_message = chat_from_message(&channel, &me, &message);
+            let mut chat_message = chat_from_message(
+                &channel,
+                &me,
+                &message,
+                gifs.get(message.message_id.as_str()),
+            );
             if let Some(reply) = &message.reply
                 && reply.parent_user_login.as_str() == me
             {
@@ -811,6 +903,7 @@ fn chat_from_message(
     channel: &str,
     me: &str,
     message: &ChannelChatMessageV1Payload,
+    gifs: Option<&HashMap<usize, Gif>>,
 ) -> ChatMessage {
     let badges = message
         .badges
@@ -848,28 +941,38 @@ fn chat_from_message(
         .message
         .fragments
         .iter()
-        .map(|fragment| match fragment {
-            Fragment::Text { text } => chat::Fragment::Text { text: text.clone() },
-            Fragment::Emote { text, emote } => chat::Fragment::Emote {
-                text: text.clone(),
-                id: emote.id.to_string(),
-            },
-            Fragment::Cheermote {
-                text, cheermote, ..
-            } => chat::Fragment::Cheermote {
-                text: text.clone(),
-                prefix: cheermote.prefix.clone(),
-                bits: cheermote.bits.max(0) as u64,
-                tier: cheermote.tier.max(0) as u64,
-            },
-            Fragment::Mention { text, mention } => chat::Fragment::Mention {
-                text: text.clone(),
-                login: mention.user_login.to_string(),
-                name: mention.user_name.to_string(),
-            },
-            _ => chat::Fragment::Text {
-                text: fragment.text().to_string(),
-            },
+        .enumerate()
+        .map(|(index, fragment)| {
+            if let Some(gif) = gifs.and_then(|found| found.get(&index)) {
+                return chat::Fragment::Gif {
+                    text: fragment.text().to_string(),
+                    id: gif.id.clone(),
+                    url: gif.url.clone(),
+                };
+            }
+            match fragment {
+                Fragment::Text { text } => chat::Fragment::Text { text: text.clone() },
+                Fragment::Emote { text, emote } => chat::Fragment::Emote {
+                    text: text.clone(),
+                    id: emote.id.to_string(),
+                },
+                Fragment::Cheermote {
+                    text, cheermote, ..
+                } => chat::Fragment::Cheermote {
+                    text: text.clone(),
+                    prefix: cheermote.prefix.clone(),
+                    bits: cheermote.bits.max(0) as u64,
+                    tier: cheermote.tier.max(0) as u64,
+                },
+                Fragment::Mention { text, mention } => chat::Fragment::Mention {
+                    text: text.clone(),
+                    login: mention.user_login.to_string(),
+                    name: mention.user_name.to_string(),
+                },
+                _ => chat::Fragment::Text {
+                    text: fragment.text().to_string(),
+                },
+            }
         })
         .collect::<Vec<_>>();
 
@@ -962,6 +1065,121 @@ async fn wait(state: &Arc<ChatState>, secs: u64) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const GIF_FRAME: &str = r##"{
+        "metadata": {
+            "message_id": "frame-1",
+            "message_type": "notification",
+            "message_timestamp": "2026-11-15T17:07:11.000Z",
+            "subscription_type": "channel.chat.message",
+            "subscription_version": "1"
+        },
+        "payload": {
+            "subscription": {
+                "id": "sub-1",
+                "status": "enabled",
+                "type": "channel.chat.message",
+                "version": "1",
+                "condition": { "broadcaster_user_id": "1", "user_id": "2" },
+                "transport": { "method": "websocket", "session_id": "session" },
+                "created_at": "2026-11-15T17:00:00.000Z",
+                "cost": 0
+            },
+            "event": {
+                "broadcaster_user_id": "1",
+                "broadcaster_user_login": "channel",
+                "broadcaster_user_name": "Channel",
+                "chatter_user_id": "2",
+                "chatter_user_login": "viewer",
+                "chatter_user_name": "Viewer",
+                "message_id": "msg-1",
+                "message": {
+                    "text": "look",
+                    "fragments": [
+                        { "type": "text", "text": "look " },
+                        {
+                            "type": "gif",
+                            "text": "gif",
+                            "gif": {
+                                "id": "gif-1",
+                                "url": "https://clips-media-assets2.twitch.tv/gif-1.gif"
+                            }
+                        }
+                    ]
+                },
+                "color": "#ff0000",
+                "badges": [],
+                "source_badges": [],
+                "message_type": "text"
+            }
+        }
+    }"##;
+
+    fn chat_from_frame(frame: &str) -> ChatMessage {
+        let mut frame = frame.to_string();
+        let (data, gifs) = parse_frame(&mut frame).unwrap_or_else(|err| panic!("{err:?}"));
+        let EventsubWebsocketData::Notification { payload, .. } = data else {
+            panic!("a notification is expected");
+        };
+        let Event::ChannelChatMessageV1(payload) = payload else {
+            panic!("a chat message is expected");
+        };
+        let EsMessage::Notification(message) = payload.message else {
+            panic!("a notification payload is expected");
+        };
+        chat_from_message(
+            "channel",
+            "me",
+            &message,
+            gifs.get(message.message_id.as_str()),
+        )
+    }
+
+    #[test]
+    fn a_gif_fragment_becomes_a_message_with_its_url() {
+        let message = chat_from_frame(GIF_FRAME);
+
+        assert_eq!(
+            message.fragments,
+            vec![
+                chat::Fragment::Text {
+                    text: "look ".to_string()
+                },
+                chat::Fragment::Gif {
+                    text: "gif".to_string(),
+                    id: "gif-1".to_string(),
+                    url: "https://clips-media-assets2.twitch.tv/gif-1.gif".to_string(),
+                },
+            ]
+        );
+        assert_eq!(message.text, "look");
+    }
+
+    #[test]
+    fn an_unknown_fragment_keeps_its_text_and_the_message() {
+        let frame = GIF_FRAME.replace(r#""type": "gif""#, r#""type": "poll""#);
+
+        let message = chat_from_frame(&frame);
+
+        assert_eq!(
+            message.fragments,
+            vec![
+                chat::Fragment::Text {
+                    text: "look ".to_string()
+                },
+                chat::Fragment::Text {
+                    text: "gif".to_string()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_known_frame_is_not_rewritten() {
+        let frame = r#"{"payload":{"event":{"message_id":"msg-1","message":{"fragments":[{"type":"text","text":"hi"},{"type":"emote","text":"Kappa","emote":{"id":"25"}}]}}}}"#;
+
+        assert!(rewrite_fragments(frame).is_none());
+    }
 
     #[test]
     fn the_core_subscriptions_cover_every_critical_type() {

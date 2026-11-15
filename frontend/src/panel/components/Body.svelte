@@ -14,6 +14,13 @@
 				alt={fragment.text}
 				loading="lazy"
 			>
+		{:else if fragment.type === "gif"}
+			<img
+				class="gif"
+				src={fragment.url}
+				alt={fragment.text}
+				loading="lazy"
+			>
 		{:else if fragment.type === "cheermote"}
 			<span class="cheer" data-tier={fragment.tier}>{fragment.text}</span>
 		{:else if fragment.type === "mention"}

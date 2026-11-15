@@ -26,6 +26,7 @@ export type Reply = {
 export type Fragment =
 	| { type: "text"; text: string }
 	| { type: "emote"; text: string; id: string }
+	| { type: "gif"; text: string; id: string; url: string }
 	| {
 			type: "cheermote";
 			text: string;

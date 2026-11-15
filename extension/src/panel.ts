@@ -79,7 +79,7 @@ async function inlinePanel(): Promise<string | undefined> {
 		"style-src 'unsafe-inline'",
 		`script-src 'nonce-${nonce}'`,
 		`connect-src ${origin}`,
-		`img-src ${origin} https://static-cdn.jtvnw.net data:`,
+		`img-src ${origin} https: data:`,
 		`font-src ${origin}`,
 	].join("; ");
 
