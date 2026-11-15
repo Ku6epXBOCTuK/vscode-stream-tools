@@ -8,6 +8,9 @@ use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::Message as Ws;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
+use twitch_api::eventsub::automod::message::{
+    AutomodHeldReason, AutomodMessageHoldV2, AutomodMessageHoldV2Payload, AutomodMessageUpdateV2,
+};
 use twitch_api::eventsub::channel::chat::{Fragment, message::MessageType};
 use twitch_api::eventsub::channel::{
     ChannelChatClearUserMessagesV1, ChannelChatClearV1, ChannelChatMessageDeleteV1,
@@ -493,6 +496,21 @@ async fn subscribe_all(state: &Arc<ChatState>, session_id: &str) -> Result<usize
     let raid = ChannelRaidV1::to_broadcaster_user_id(broadcaster.clone());
     count += optional(state, token, &transport, "channel.raid", raid).await;
 
+    let hold = AutomodMessageHoldV2::new(broadcaster.clone(), user.clone());
+    let held = optional(state, token, &transport, "automod.message.hold", hold).await;
+    count += held;
+
+    let review = AutomodMessageUpdateV2::new(broadcaster.clone(), user.clone());
+    let reviewed = optional(state, token, &transport, "automod.message.update", review).await;
+    count += reviewed;
+
+    if held == 0 || reviewed == 0 {
+        crate::auth::push_notice(
+            state,
+            "Sign in again to get AutoMod notifications".to_string(),
+        );
+    }
+
     let subscribed = ChannelSubscribeV1::broadcaster_user_id(broadcaster);
     count += optional(state, token, &transport, "channel.subscribe", subscribed).await;
 
@@ -773,6 +791,24 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event, gifs:
             marker.id = message.message_id.to_string();
             state.push(marker);
         }
+        Event::AutomodMessageHoldV2(payload) => {
+            let EsMessage::Notification(message) = payload.message else {
+                return;
+            };
+            let held = automod_hold(&channel, &message);
+            log::info!("automod: {} ({})", held.text, held_reason(&message.reason));
+            state.push(held);
+        }
+        Event::AutomodMessageUpdateV2(payload) => {
+            let EsMessage::Notification(message) = payload.message else {
+                return;
+            };
+            log::info!(
+                "automod: review of a message from {} ended as {:?}",
+                message.user_name,
+                message.status
+            );
+        }
         Event::ChannelFollowV2(payload) => {
             let EsMessage::Notification(message) = payload.message else {
                 return;
@@ -885,6 +921,17 @@ fn event_message(
     summary: String,
     amount: Option<u64>,
 ) {
+    state.push(event_entry(channel, kind, login, name, summary, amount));
+}
+
+fn event_entry(
+    channel: &str,
+    kind: &str,
+    login: &str,
+    name: &str,
+    summary: String,
+    amount: Option<u64>,
+) -> ChatMessage {
     let mut chat_message = ChatMessage::new(
         channel,
         chat::KIND_EVENT,
@@ -896,7 +943,31 @@ fn event_message(
         summary,
         amount,
     });
-    state.push(chat_message);
+    chat_message
+}
+
+fn automod_hold(channel: &str, message: &AutomodMessageHoldV2Payload) -> ChatMessage {
+    let summary = format!(
+        "AutoMod held a message from {}: check it in Twitch",
+        message.user_name
+    );
+    let mut chat_message = event_entry(
+        channel,
+        "automod",
+        message.user_login.as_str(),
+        message.user_name.as_str(),
+        summary,
+        None,
+    );
+    chat_message.highlighted = true;
+    chat_message
+}
+
+fn held_reason(reason: &AutomodHeldReason) -> String {
+    match reason {
+        AutomodHeldReason::Automod(info) => format!("{:?}", info.category),
+        _ => "blocked term".to_string(),
+    }
 }
 
 fn chat_from_message(
@@ -1115,6 +1186,45 @@ mod tests {
         }
     }"##;
 
+    const HOLD_FRAME: &str = r##"{
+        "metadata": {
+            "message_id": "frame-2",
+            "message_type": "notification",
+            "message_timestamp": "2026-11-15T18:00:00.000Z",
+            "subscription_type": "automod.message.hold",
+            "subscription_version": "2"
+        },
+        "payload": {
+            "subscription": {
+                "id": "sub-2",
+                "status": "enabled",
+                "type": "automod.message.hold",
+                "version": "2",
+                "condition": { "broadcaster_user_id": "1", "moderator_user_id": "2" },
+                "transport": { "method": "websocket", "session_id": "session" },
+                "created_at": "2026-11-15T17:00:00.000Z",
+                "cost": 0
+            },
+            "event": {
+                "broadcaster_user_id": "1",
+                "broadcaster_user_login": "channel",
+                "broadcaster_user_name": "Channel",
+                "user_id": "3",
+                "user_login": "viewer",
+                "user_name": "Viewer",
+                "message_id": "msg-2",
+                "message": {
+                    "text": "bad words",
+                    "fragments": [{ "type": "text", "text": "bad words" }]
+                },
+                "reason": "automod",
+                "automod": { "category": "swearing", "level": 4, "boundaries": [{ "start_pos": 0, "end_pos": 3 }] },
+                "blocked_term": null,
+                "held_at": "2026-11-15T18:00:00.000Z"
+            }
+        }
+    }"##;
+
     fn chat_from_frame(frame: &str) -> ChatMessage {
         let mut frame = frame.to_string();
         let (data, gifs) = parse_frame(&mut frame).unwrap_or_else(|err| panic!("{err:?}"));
@@ -1179,6 +1289,31 @@ mod tests {
         let frame = r#"{"payload":{"event":{"message_id":"msg-1","message":{"fragments":[{"type":"text","text":"hi"},{"type":"emote","text":"Kappa","emote":{"id":"25"}}]}}}}"#;
 
         assert!(rewrite_fragments(frame).is_none());
+    }
+
+    #[test]
+    fn an_automod_hold_becomes_a_highlighted_event() {
+        let mut frame = HOLD_FRAME.to_string();
+        let (data, _) = parse_frame(&mut frame).unwrap_or_else(|err| panic!("{err:?}"));
+        let EventsubWebsocketData::Notification { payload, .. } = data else {
+            panic!("a notification is expected");
+        };
+        let Event::AutomodMessageHoldV2(payload) = payload else {
+            panic!("an automod hold is expected");
+        };
+        let EsMessage::Notification(message) = payload.message else {
+            panic!("a notification payload is expected");
+        };
+
+        let chat_message = automod_hold("channel", &message);
+
+        assert_eq!(chat_message.kind, chat::KIND_EVENT);
+        assert!(chat_message.highlighted);
+        let event = chat_message.event.expect("an event is expected");
+        assert_eq!(event.kind, "automod");
+        assert_eq!(chat_message.text, event.summary);
+        assert!(chat_message.text.contains("Viewer"));
+        assert_eq!(held_reason(&message.reason), "Swearing");
     }
 
     #[test]

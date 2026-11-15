@@ -31,6 +31,7 @@ pub fn scopes() -> Vec<Scope> {
         Scope::ChannelReadSubscriptions,
         Scope::BitsRead,
         Scope::ModeratorReadFollowers,
+        Scope::ModeratorManageAutoMod,
         Scope::ModeratorManageChatMessages,
         Scope::ModeratorManageBannedUsers,
     ]
