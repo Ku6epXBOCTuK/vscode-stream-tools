@@ -11,6 +11,7 @@ use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use twitch_api::eventsub::automod::message::{
     AutomodHeldReason, AutomodMessageHoldV2, AutomodMessageHoldV2Payload, AutomodMessageUpdateV2,
 };
+use twitch_api::eventsub::channel::chat::notification::Chatter;
 use twitch_api::eventsub::channel::chat::{Fragment, message::MessageType};
 use twitch_api::eventsub::channel::{
     ChannelChatClearUserMessagesV1, ChannelChatClearV1, ChannelChatMessageDeleteV1,
@@ -748,9 +749,44 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event, gifs:
             } else {
                 message.system_message.clone()
             };
-            let mut chat_message =
-                ChatMessage::new(&channel, chat::KIND_NOTICE, notice_user(), text);
+            let mut author = notice_user();
+            if let Chatter::Chatter {
+                chatter_user_id,
+                chatter_user_name,
+                chatter_user_login,
+                color,
+            } = &message.chatter
+            {
+                let color = color.to_string();
+                let badges = message
+                    .badges
+                    .iter()
+                    .map(|badge| chat::Badge {
+                        name: badge.set_id.to_string(),
+                        version: badge.id.to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                author = user(
+                    chatter_user_id.to_string(),
+                    chatter_user_login.as_str(),
+                    chatter_user_name.as_str(),
+                    if color.is_empty() || color == "#000000" {
+                        None
+                    } else {
+                        Some(color)
+                    },
+                    badges,
+                );
+                author.moderator = has_badge(&author.badges, "moderator");
+                author.subscriber =
+                    has_badge(&author.badges, "subscriber") || has_badge(&author.badges, "founder");
+                author.vip = has_badge(&author.badges, "vip");
+                author.broadcaster = has_badge(&author.badges, "broadcaster");
+            }
+
+            let mut chat_message = ChatMessage::new(&channel, chat::KIND_NOTICE, author, text);
             chat_message.id = message.message_id.to_string();
+            chat_message.notify = true;
             state.push(chat_message);
         }
         Event::ChannelChatClearV1(payload) => {
@@ -901,6 +937,7 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event, gifs:
                 ),
             );
             chat_message.highlighted = true;
+            chat_message.notify = true;
             chat_message.event = Some(chat::Event {
                 kind: "redemption".to_string(),
                 summary: message.reward.title.clone(),
@@ -938,6 +975,7 @@ fn event_entry(
         user(String::new(), login, name, None, Vec::new()),
         summary.clone(),
     );
+    chat_message.notify = true;
     chat_message.event = Some(chat::Event {
         kind: kind.to_string(),
         summary,
@@ -985,11 +1023,11 @@ fn chat_from_message(
         })
         .collect::<Vec<_>>();
 
-    let has_badge = |name: &str| badges.iter().any(|badge| badge.name == name);
-    let moderator = has_badge("moderator");
-    let subscriber = has_badge("subscriber") || has_badge("founder");
-    let vip = has_badge("vip");
-    let broadcaster = has_badge("broadcaster");
+    let has = |name: &str| has_badge(&badges, name);
+    let moderator = has("moderator");
+    let subscriber = has("subscriber") || has("founder");
+    let vip = has("vip");
+    let broadcaster = has("broadcaster");
 
     let color = message.color.to_string();
     let mut user = user(
@@ -1073,6 +1111,7 @@ fn chat_from_message(
     chat_message.action = action;
     chat_message.highlighted = highlighted;
     chat_message.moderatable = true;
+    chat_message.notify = true;
     chat_message
 }
 
@@ -1094,6 +1133,10 @@ fn user(
         vip: false,
         broadcaster: false,
     }
+}
+
+fn has_badge(badges: &[chat::Badge], name: &str) -> bool {
+    badges.iter().any(|badge| badge.name == name)
 }
 
 fn notice_user() -> User {
@@ -1263,6 +1306,7 @@ mod tests {
             ]
         );
         assert_eq!(message.text, "look");
+        assert!(message.notify);
     }
 
     #[test]
@@ -1309,11 +1353,26 @@ mod tests {
 
         assert_eq!(chat_message.kind, chat::KIND_EVENT);
         assert!(chat_message.highlighted);
+        assert!(chat_message.notify);
         let event = chat_message.event.expect("an event is expected");
         assert_eq!(event.kind, "automod");
         assert_eq!(chat_message.text, event.summary);
         assert!(chat_message.text.contains("Viewer"));
         assert_eq!(held_reason(&message.reason), "Swearing");
+    }
+
+    #[test]
+    fn twitch_events_notify() {
+        let message = event_entry(
+            "channel",
+            "follow",
+            "viewer",
+            "Viewer",
+            "Viewer followed".to_string(),
+            None,
+        );
+
+        assert!(message.notify);
     }
 
     #[test]

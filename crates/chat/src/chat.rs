@@ -86,6 +86,8 @@ pub struct ChatMessage {
     pub action: bool,
     pub highlighted: bool,
     pub moderatable: bool,
+    #[serde(skip)]
+    pub notify: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event: Option<Event>,
 }
@@ -119,6 +121,7 @@ impl ChatMessage {
             action: false,
             highlighted: false,
             moderatable: false,
+            notify: false,
             event: None,
         }
     }
@@ -199,7 +202,7 @@ impl Store {
         inner
             .items
             .iter()
-            .filter(|message| message.seq > read && message.kind == KIND_CHAT)
+            .filter(|message| message.seq > read && message.notify)
             .count() as u64
     }
 
@@ -237,7 +240,9 @@ mod tests {
     use super::*;
 
     fn message(text: &str) -> ChatMessage {
-        ChatMessage::new("channel", KIND_CHAT, User::default(), text)
+        let mut message = ChatMessage::new("channel", KIND_CHAT, User::default(), text);
+        message.notify = true;
+        message
     }
 
     fn from(login: &str, text: &str) -> ChatMessage {
@@ -342,12 +347,23 @@ mod tests {
     }
 
     #[test]
-    fn unread_counts_only_chat_messages() {
+    fn unread_counts_notifying_messages() {
         let store = Store::with_capacity(10);
         store.push(marker(KIND_NOTICE, ""));
         store.push(message("one"));
         store.push(marker(KIND_DELETE, "missing"));
         store.push(marker(KIND_EVENT, ""));
+
+        assert_eq!(store.unread(), 1);
+    }
+
+    #[test]
+    fn a_notifying_event_counts_as_unread() {
+        let store = Store::with_capacity(10);
+        let mut event = marker(KIND_EVENT, "");
+        event.notify = true;
+
+        store.push(event);
 
         assert_eq!(store.unread(), 1);
     }

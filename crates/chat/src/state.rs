@@ -69,7 +69,7 @@ pub struct ChatState {
 impl ChatState {
     pub fn push(&self, message: chat::ChatMessage) -> chat::ChatMessage {
         self.touch_message();
-        if message.kind == chat::KIND_CHAT {
+        if message.notify {
             self.sound.play();
         }
         self.store.push(message)
