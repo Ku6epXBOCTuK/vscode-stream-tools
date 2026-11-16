@@ -24,8 +24,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onView:stream-tools.chat"
+    "onStartupFinished"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -43,12 +42,14 @@
         {
           "type": "webview",
           "id": "stream-tools.chat",
-          "name": "Chat"
+          "name": "Chat",
+          "icon": "media/icon.svg"
         },
         {
           "type": "tree",
           "id": "stream-tools.unread",
           "name": "Unread",
+          "icon": "media/icon.svg",
           "visibility": "hidden"
         }
       ]
