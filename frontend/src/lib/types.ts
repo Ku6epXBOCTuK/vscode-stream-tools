@@ -23,6 +23,11 @@ export type Reply = {
 	text: string;
 };
 
+export type Chatter = {
+	login: string;
+	name: string;
+};
+
 export type Fragment =
 	| { type: "text"; text: string }
 	| { type: "emote"; text: string; id: string }

@@ -4,13 +4,8 @@
 	import TextInput from "@ku6epxboctuk/ui-kit/components/TextInput.svelte";
 	import { tick } from "svelte";
 	import type { PanelChat } from "../chat.svelte";
-	import {
-		type Chatter,
-		chattersFrom,
-		filterChatters,
-		insertMention,
-		mentionAt,
-	} from "../mentions";
+	import type { Chatter } from "../../lib/types";
+	import { filterChatters, insertMention, mentionAt } from "../mentions";
 	import Icon from "./Icon.svelte";
 	import MentionMenu from "./MentionMenu.svelte";
 
@@ -22,10 +17,9 @@
 	let dismissed = $state(false);
 	let input = $state<HTMLInputElement | null>(null);
 
-	let chatters = $derived(chattersFrom(chat.history.entries));
 	let mention = $derived(dismissed ? null : mentionAt(text, caret));
 	let candidates = $derived(
-		mention ? filterChatters(chatters, mention.query) : [],
+		mention ? filterChatters(chat.history.chatters, mention.query) : [],
 	);
 	let menuOpen = $derived(mention !== null && candidates.length > 0);
 

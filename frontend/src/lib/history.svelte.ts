@@ -1,7 +1,8 @@
 import { messageKey } from "./fragments";
-import type { ChatMessage } from "./types";
+import type { Chatter, ChatMessage } from "./types";
 
-export const HISTORY_VERSION = 2;
+export const HISTORY_VERSION = 3;
+export const CHATTER_LIMIT = 50;
 
 export type Entry = {
 	key: string;
@@ -24,6 +25,7 @@ type Options = {
 
 export class History {
 	entries = $state<Entry[]>([]);
+	chatters = $state<Chatter[]>([]);
 	lastSeq = $state(0);
 	channel = $state("");
 
@@ -34,6 +36,7 @@ export class History {
 	#saveDelay: number;
 	#saveTimer: ReturnType<typeof setTimeout> | null = null;
 	#seen = new Set<string>();
+	#restoring = false;
 	#onNotice?: (message: ChatMessage) => void;
 
 	constructor(options: Options) {
@@ -69,6 +72,7 @@ export class History {
 			return false;
 		}
 		if (message.kind === "clear_user") {
+			this.#remember(message.user.login, "");
 			for (const entry of [...this.entries]) {
 				if (entry.message.user.login === message.user.login) {
 					this.forget(entry);
@@ -93,6 +97,9 @@ export class History {
 			return false;
 		}
 
+		if (message.kind === "chat" && !this.#restoring) {
+			this.#remember(message.user.login, message.user.name);
+		}
 		this.entries.push({ key, message });
 		while (this.entries.length > this.#maxMessages) {
 			this.forget(this.entries[0]);
@@ -126,6 +133,7 @@ export class History {
 	useChannel(next: string): void {
 		this.channel = next;
 		this.entries = [];
+		this.chatters = [];
 		this.#seen.clear();
 		this.lastSeq = 0;
 		this.restore();
@@ -145,17 +153,30 @@ export class History {
 			version?: number;
 			lastSeq?: number;
 			items?: ChatMessage[];
+			chatters?: Chatter[];
 		};
 		if (
 			!page ||
 			!Array.isArray(page.items) ||
-			page.version !== HISTORY_VERSION
+			(page.version !== HISTORY_VERSION &&
+				page.version !== HISTORY_VERSION - 1)
 		) {
 			return;
 		}
 		this.lastSeq = Number(page.lastSeq) || 0;
-		for (const message of page.items) {
-			this.append(message);
+		const legacy = !Array.isArray(page.chatters);
+		if (!legacy) {
+			for (const chatter of page.chatters ?? []) {
+				this.#remember(chatter.login, chatter.name);
+			}
+		}
+		this.#restoring = !legacy;
+		try {
+			for (const message of page.items) {
+				this.append(message);
+			}
+		} finally {
+			this.#restoring = false;
 		}
 	}
 
@@ -179,10 +200,30 @@ export class History {
 					version: HISTORY_VERSION,
 					lastSeq: this.lastSeq,
 					items: this.entries.map((entry) => entry.message),
+					chatters: this.chatters.map((chatter) => ({
+						login: chatter.login,
+						name: chatter.name,
+					})),
 				}),
 			);
 		} catch {
 			return;
+		}
+	}
+
+	#remember(login: string, name: string): void {
+		if (!login) {
+			return;
+		}
+		const index = this.chatters.findIndex((chatter) => chatter.login === login);
+		if (index === -1) {
+			this.chatters.unshift({ login, name: name || login });
+		} else {
+			const [chatter] = this.chatters.splice(index, 1);
+			this.chatters.unshift({ login, name: name || chatter.name || login });
+		}
+		while (this.chatters.length > CHATTER_LIMIT) {
+			this.chatters.pop();
 		}
 	}
 

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type { Chatter } from "../mentions";
+	import type { Chatter } from "../../lib/types";
 
 	let {
 		items,

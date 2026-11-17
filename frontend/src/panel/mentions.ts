@@ -1,31 +1,9 @@
-import type { Entry } from "../lib/history.svelte";
-
-export type Chatter = {
-	login: string;
-	name: string;
-};
+import type { Chatter } from "../lib/types";
 
 export type Mention = {
 	start: number;
 	query: string;
 };
-
-export function chattersFrom(entries: Entry[], limit = 50): Chatter[] {
-	const seen = new Set<string>();
-	const result: Chatter[] = [];
-	for (let index = entries.length - 1; index >= 0; index -= 1) {
-		const user = entries[index].message.user;
-		if (!user.login || seen.has(user.login)) {
-			continue;
-		}
-		seen.add(user.login);
-		result.push({ login: user.login, name: user.name || user.login });
-		if (result.length >= limit) {
-			break;
-		}
-	}
-	return result;
-}
 
 export function mentionAt(text: string, caret: number): Mention | null {
 	const match = /(?:^|\s)@([a-zA-Z0-9_]*)$/.exec(text.slice(0, caret));

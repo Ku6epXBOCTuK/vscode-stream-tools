@@ -1,6 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { memoryStorage, message } from "./fixtures";
-import { HISTORY_VERSION, History } from "./history.svelte";
+import { CHATTER_LIMIT, HISTORY_VERSION, History } from "./history.svelte";
+
+function chatter(login: string, seq: number) {
+	return message({
+		seq,
+		id: `m${seq}`,
+		user: { ...message().user, login, name: login.toUpperCase() },
+	});
+}
 
 afterEach(() => {
 	vi.useRealTimers();
@@ -53,6 +61,59 @@ describe("History", () => {
 			}),
 		);
 		expect(history.entries.map((entry) => entry.message.id)).toEqual(["b"]);
+	});
+
+	it("keeps the cleared user in chatters", () => {
+		const history = new History({ maxMessages: 10 });
+		history.append(chatter("a", 1));
+		history.append(chatter("b", 2));
+		history.append(
+			message({
+				seq: 3,
+				kind: "clear_user",
+				user: { ...message().user, login: "a" },
+			}),
+		);
+		expect(history.chatters.map((item) => item.login)).toEqual(["a", "b"]);
+	});
+
+	it("names a cleared user without prior messages by login", () => {
+		const history = new History({ maxMessages: 10 });
+		history.append(
+			message({
+				seq: 1,
+				kind: "clear_user",
+				user: { ...message().user, login: "ghost" },
+			}),
+		);
+		expect(history.chatters).toEqual([{ login: "ghost", name: "ghost" }]);
+	});
+
+	it("keeps chatters after delete and clear", () => {
+		const history = new History({ maxMessages: 10 });
+		history.append(chatter("a", 1));
+		history.append(message({ seq: 2, kind: "delete", id: "m1" }));
+		history.append(message({ seq: 3, kind: "clear" }));
+		expect(history.length).toBe(0);
+		expect(history.chatters.map((item) => item.login)).toEqual(["a"]);
+	});
+
+	it("orders chatters by last activity and caps them", () => {
+		const history = new History({ maxMessages: 100 });
+		for (let index = 1; index <= CHATTER_LIMIT + 1; index += 1) {
+			history.append(chatter(`user${index}`, index));
+		}
+		expect(history.chatters).toHaveLength(CHATTER_LIMIT);
+		expect(history.chatters[0].login).toBe(`user${CHATTER_LIMIT + 1}`);
+		history.append(chatter("user1", CHATTER_LIMIT + 2));
+		expect(history.chatters[0].login).toBe("user1");
+	});
+
+	it("does not add service users to chatters", () => {
+		const history = new History({ maxMessages: 10 });
+		history.append(message({ seq: 1, kind: "notice", id: "n1" }));
+		history.append(message({ seq: 2, kind: "event", id: "e1" }));
+		expect(history.chatters).toEqual([]);
 	});
 
 	it("clears everything on clear", () => {
@@ -137,6 +198,33 @@ describe("History", () => {
 		expect(restored.lastSeq).toBe(1);
 	});
 
+	it("restores chatters whose messages were cleared", () => {
+		const storage = memoryStorage();
+		vi.useFakeTimers();
+		const history = new History({ maxMessages: 10, storage });
+		history.channel = "channel";
+		history.append(chatter("alice", 1));
+		history.append(
+			message({
+				seq: 2,
+				kind: "clear_user",
+				user: { ...message().user, login: "alice" },
+			}),
+		);
+		history.flush();
+
+		const page = JSON.parse(
+			storage.data.get("twitch-chat:history:channel") ?? "null",
+		);
+		expect(page.version).toBe(HISTORY_VERSION);
+		expect(page.items).toHaveLength(0);
+		expect(page.chatters).toEqual([{ login: "alice", name: "ALICE" }]);
+
+		const restored = new History({ maxMessages: 10, storage });
+		restored.useChannel("channel");
+		expect(restored.chatters).toEqual([{ login: "alice", name: "ALICE" }]);
+	});
+
 	it("ignores saved history from another version", () => {
 		const storage = memoryStorage();
 		storage.setItem(
@@ -147,6 +235,22 @@ describe("History", () => {
 		history.useChannel("channel");
 		expect(history.length).toBe(0);
 		expect(history.lastSeq).toBe(0);
+	});
+
+	it("rebuilds chatters from the previous saved version", () => {
+		const storage = memoryStorage();
+		storage.setItem(
+			"twitch-chat:history:channel",
+			JSON.stringify({
+				version: HISTORY_VERSION - 1,
+				lastSeq: 2,
+				items: [chatter("alice", 1), chatter("bob", 2)],
+			}),
+		);
+		const history = new History({ maxMessages: 10, storage });
+		history.useChannel("channel");
+		expect(history.entries).toHaveLength(2);
+		expect(history.chatters.map((item) => item.login)).toEqual(["bob", "alice"]);
 	});
 
 	it("does not persist the overlay", () => {
@@ -167,6 +271,14 @@ describe("History", () => {
 		expect(history.entries.map((entry) => entry.message.seq)).toEqual([3]);
 		history.append(message({ seq: 4 }));
 		expect(history.entries.map((entry) => entry.message.seq)).toEqual([4]);
+	});
+
+	it("resets chatters when switching channels", () => {
+		const history = new History({ maxMessages: 10 });
+		history.useChannel("one");
+		history.append(chatter("alice", 1));
+		history.useChannel("two");
+		expect(history.chatters).toEqual([]);
 	});
 
 	it("keeps history of another channel when switching", () => {

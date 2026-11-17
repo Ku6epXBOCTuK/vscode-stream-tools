@@ -1,31 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { message } from "../lib/fixtures";
-import type { Entry } from "../lib/history.svelte";
-import {
-	chattersFrom,
-	filterChatters,
-	insertMention,
-	mentionAt,
-} from "./mentions";
-
-function entries(logins: string[]): Entry[] {
-	return logins.map((login, index) => {
-		const msg = message({ seq: index + 1, id: `m${index + 1}` });
-		msg.user = { ...msg.user, login, name: login.toUpperCase() };
-		return { key: `m${index + 1}`, message: msg };
-	});
-}
+import { filterChatters, insertMention, mentionAt } from "./mentions";
 
 describe("mentions", () => {
-	it("lists chatters by recency and without duplicates", () => {
-		const list = chattersFrom(entries(["alice", "bob", "alice"]));
-		expect(list.map((chatter) => chatter.login)).toEqual(["alice", "bob"]);
-	});
-
-	it("stops at the limit", () => {
-		expect(chattersFrom(entries(["a", "b", "c"]), 2)).toHaveLength(2);
-	});
-
 	it("finds a mention at the caret", () => {
 		expect(mentionAt("hi @ali", 7)).toEqual({ start: 3, query: "ali" });
 		expect(mentionAt("@", 1)).toEqual({ start: 0, query: "" });
