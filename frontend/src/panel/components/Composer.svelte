@@ -75,11 +75,14 @@
 
 	async function submit(event: SubmitEvent): Promise<void> {
 		event.preventDefault();
-		if (!(await chat.send(text))) {
+		const draft = text;
+		if (!(await chat.send(draft))) {
 			return;
 		}
-		text = "";
-		caret = 0;
+		if (text === draft) {
+			text = "";
+			caret = 0;
+		}
 	}
 </script>
 
@@ -119,6 +122,8 @@
 			onkeyup={caretOnly}
 			{onkeydown}
 		/>
-		<Button variant="primary" size="sm" type="submit">Send</Button>
+		<Button variant="primary" size="sm" type="submit" loading={chat.sending}>
+			{chat.sending ? "Sending…" : "Send"}
+		</Button>
 	</div>
 </form>

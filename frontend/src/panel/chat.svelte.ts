@@ -5,6 +5,7 @@ export type Moderation = "delete" | "timeout" | "ban";
 
 export class PanelChat extends ChatCore {
 	replyTo = $state<ChatMessage | null>(null);
+	sending = $state(false);
 
 	constructor() {
 		const params = new URLSearchParams(location.search);
@@ -29,9 +30,10 @@ export class PanelChat extends ChatCore {
 
 	async send(text: string): Promise<boolean> {
 		const trimmed = text.trim();
-		if (!trimmed) {
+		if (!trimmed || this.sending) {
 			return false;
 		}
+		this.sending = true;
 		try {
 			await this.api.send(trimmed, this.replyTo?.id);
 			this.replyTo = null;
@@ -41,6 +43,8 @@ export class PanelChat extends ChatCore {
 		} catch (error) {
 			this.error = (error as Error).message;
 			return false;
+		} finally {
+			this.sending = false;
 		}
 	}
 
