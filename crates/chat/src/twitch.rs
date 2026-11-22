@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use twitch_api::helix::{
     ClientRequestError, HelixRequestDeleteError, HelixRequestGetError, HelixRequestPostError,
-    RequestDelete, RequestGet, RequestPost,
+    Request as HelixRequest, RequestDelete, RequestGet, RequestPost,
 };
 use twitch_oauth2::{TwitchToken, UserToken};
 
@@ -59,9 +59,9 @@ where
                 .req_get(request, &token)
                 .await
                 .map(|response| response.data)
-                .map_err(classify)
+                .map_err(|err| classify(err, "GET", <R as HelixRequest>::PATH))
         }
-        Err(err) => Err(classify(err)),
+        Err(err) => Err(classify(err, "GET", <R as HelixRequest>::PATH)),
     }
 }
 
@@ -90,9 +90,9 @@ where
                 .req_post(request, body, &token)
                 .await
                 .map(|response| response.data)
-                .map_err(classify)
+                .map_err(|err| classify(err, "POST", <R as HelixRequest>::PATH))
         }
-        Err(err) => Err(classify(err)),
+        Err(err) => Err(classify(err, "POST", <R as HelixRequest>::PATH)),
     }
 }
 
@@ -112,9 +112,9 @@ where
                 .req_delete(request, &token)
                 .await
                 .map(|response| response.data)
-                .map_err(classify)
+                .map_err(|err| classify(err, "DELETE", <R as HelixRequest>::PATH))
         }
-        Err(err) => Err(classify(err)),
+        Err(err) => Err(classify(err, "DELETE", <R as HelixRequest>::PATH)),
     }
 }
 
@@ -147,12 +147,23 @@ fn status_message(err: &ClientRequestError<reqwest::Error>) -> Option<(StatusCod
     }
 }
 
-fn classify(err: ClientRequestError<reqwest::Error>) -> TwitchError {
-    log::error!("Twitch request failed: {err}");
+fn classify(err: ClientRequestError<reqwest::Error>, method: &str, path: &str) -> TwitchError {
+    log::error!("Twitch {method} {path} failed: {}", error_chain(&err));
     match status_message(&err) {
         Some((status, message)) => TwitchError::Status { status, message },
         None => TwitchError::Transport,
     }
+}
+
+fn error_chain(err: &(dyn std::error::Error + 'static)) -> String {
+    let mut text = err.to_string();
+    let mut source = err.source();
+    while let Some(cause) = source {
+        text.push_str(": ");
+        text.push_str(&cause.to_string());
+        source = cause.source();
+    }
+    text
 }
 
 async fn refresh(state: &Arc<ChatState>) -> Result<UserToken, TwitchError> {
@@ -177,5 +188,39 @@ mod tests {
             "Missing scope: user:write:chat"
         ));
         assert!(!retry_helps(StatusCode::FORBIDDEN, "Invalid OAuth token"));
+    }
+
+    #[derive(Debug)]
+    struct Cause;
+
+    impl std::fmt::Display for Cause {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "connection reset")
+        }
+    }
+
+    impl std::error::Error for Cause {}
+
+    #[derive(Debug)]
+    struct Failure(Cause);
+
+    impl std::fmt::Display for Failure {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            write!(f, "request failed")
+        }
+    }
+
+    impl std::error::Error for Failure {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.0)
+        }
+    }
+
+    #[test]
+    fn an_error_chain_keeps_the_underlying_cause() {
+        assert_eq!(
+            error_chain(&Failure(Cause)),
+            "request failed: connection reset"
+        );
     }
 }
