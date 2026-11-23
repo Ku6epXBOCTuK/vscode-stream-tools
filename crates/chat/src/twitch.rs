@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::sync::Arc;
 
 use axum::http::StatusCode;
@@ -48,20 +49,34 @@ where
     R: RequestGet + Clone,
 {
     let token = token(state).await?;
+    let path = <R as HelixRequest>::PATH;
 
-    match state.helix.req_get(request.clone(), &token).await {
+    let result = with_retry(
+        "GET",
+        path,
+        || state.helix.req_get(request.clone(), &token),
+        is_transport,
+        describe,
+    )
+    .await;
+
+    match result {
         Ok(response) => Ok(response.data),
         Err(err) if rejected(&err) => {
             log::warn!("Twitch rejected the token, refreshing: {err}");
             let token = refresh(state).await?;
-            state
-                .helix
-                .req_get(request, &token)
-                .await
-                .map(|response| response.data)
-                .map_err(|err| classify(err, "GET", <R as HelixRequest>::PATH))
+            with_retry(
+                "GET",
+                path,
+                || state.helix.req_get(request.clone(), &token),
+                is_transport,
+                describe,
+            )
+            .await
+            .map(|response| response.data)
+            .map_err(|err| classify(err, "GET", path))
         }
-        Err(err) => Err(classify(err, "GET", <R as HelixRequest>::PATH)),
+        Err(err) => Err(classify(err, "GET", path)),
     }
 }
 
@@ -75,24 +90,34 @@ where
     R::Body: Clone,
 {
     let token = token(state).await?;
+    let path = <R as HelixRequest>::PATH;
 
-    match state
-        .helix
-        .req_post(request.clone(), body.clone(), &token)
-        .await
-    {
+    let result = with_retry(
+        "POST",
+        path,
+        || state.helix.req_post(request.clone(), body.clone(), &token),
+        can_replay_post,
+        describe,
+    )
+    .await;
+
+    match result {
         Ok(response) => Ok(response.data),
         Err(err) if rejected(&err) => {
             log::warn!("Twitch rejected the token, refreshing: {err}");
             let token = refresh(state).await?;
-            state
-                .helix
-                .req_post(request, body, &token)
-                .await
-                .map(|response| response.data)
-                .map_err(|err| classify(err, "POST", <R as HelixRequest>::PATH))
+            with_retry(
+                "POST",
+                path,
+                || state.helix.req_post(request.clone(), body.clone(), &token),
+                can_replay_post,
+                describe,
+            )
+            .await
+            .map(|response| response.data)
+            .map_err(|err| classify(err, "POST", path))
         }
-        Err(err) => Err(classify(err, "POST", <R as HelixRequest>::PATH)),
+        Err(err) => Err(classify(err, "POST", path)),
     }
 }
 
@@ -116,6 +141,54 @@ where
         }
         Err(err) => Err(classify(err, "DELETE", <R as HelixRequest>::PATH)),
     }
+}
+
+const TRANSPORT_ATTEMPTS: usize = 2;
+
+async fn with_retry<T, E, F, Fut>(
+    method: &str,
+    path: &str,
+    mut call: F,
+    retryable: fn(&E) -> bool,
+    describe_error: fn(&E) -> String,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+{
+    let mut failure = None;
+    for attempt in 1..=TRANSPORT_ATTEMPTS {
+        match call().await {
+            Ok(value) => return Ok(value),
+            Err(err) if attempt < TRANSPORT_ATTEMPTS && retryable(&err) => {
+                log::warn!(
+                    "Twitch {method} {path} attempt {attempt} failed: {}, retrying",
+                    describe_error(&err)
+                );
+                failure = Some(err);
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    Err(failure.expect("a retry leaves the last failure behind"))
+}
+
+fn is_transport(err: &ClientRequestError<reqwest::Error>) -> bool {
+    matches!(
+        err,
+        ClientRequestError::RequestError(_) | ClientRequestError::HyperError(_)
+    )
+}
+
+fn can_replay_post(err: &ClientRequestError<reqwest::Error>) -> bool {
+    matches!(
+        err,
+        ClientRequestError::RequestError(source) if source.is_dns() || source.is_connect()
+    )
+}
+
+fn describe(err: &ClientRequestError<reqwest::Error>) -> String {
+    error_chain(err)
 }
 
 fn retry_helps(status: StatusCode, message: &str) -> bool {
@@ -175,6 +248,90 @@ async fn refresh(state: &Arc<ChatState>) -> Result<UserToken, TwitchError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[derive(Debug, PartialEq)]
+    enum FakeError {
+        Retry,
+        Fail,
+    }
+
+    impl std::fmt::Display for FakeError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            match self {
+                Self::Retry => write!(f, "temporary"),
+                Self::Fail => write!(f, "permanent"),
+            }
+        }
+    }
+
+    fn fake_retryable(err: &FakeError) -> bool {
+        matches!(err, FakeError::Retry)
+    }
+
+    fn fake_describe(err: &FakeError) -> String {
+        err.to_string()
+    }
+
+    #[tokio::test]
+    async fn a_retry_keeps_the_pending_request_alive() {
+        let mut calls = 0;
+        let result: Result<&str, FakeError> = with_retry(
+            "POST",
+            "/chat/messages",
+            || {
+                calls += 1;
+                if calls == 1 {
+                    std::future::ready(Err(FakeError::Retry))
+                } else {
+                    std::future::ready(Ok("sent"))
+                }
+            },
+            fake_retryable,
+            fake_describe,
+        )
+        .await;
+
+        assert_eq!(result, Ok("sent"));
+        assert_eq!(calls, 2);
+    }
+
+    #[tokio::test]
+    async fn a_non_retryable_error_fails_immediately() {
+        let mut calls = 0;
+        let result: Result<(), FakeError> = with_retry(
+            "POST",
+            "/chat/messages",
+            || {
+                calls += 1;
+                std::future::ready(Err(FakeError::Fail))
+            },
+            fake_retryable,
+            fake_describe,
+        )
+        .await;
+
+        assert!(matches!(result, Err(FakeError::Fail)));
+        assert_eq!(calls, 1);
+    }
+
+    #[tokio::test]
+    async fn a_retry_stops_after_two_attempts() {
+        let mut calls = 0;
+        let result: Result<(), FakeError> = with_retry(
+            "GET",
+            "/users",
+            || {
+                calls += 1;
+                std::future::ready(Err(FakeError::Retry))
+            },
+            fake_retryable,
+            fake_describe,
+        )
+        .await;
+
+        assert!(matches!(result, Err(FakeError::Retry)));
+        assert_eq!(calls, TRANSPORT_ATTEMPTS);
+    }
 
     #[test]
     fn a_rejected_token_is_worth_a_retry() {
