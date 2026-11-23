@@ -849,24 +849,24 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event, gifs:
             let EsMessage::Notification(message) = payload.message else {
                 return;
             };
-            event_message(
-                state,
+            state.push(event_entry(
                 &channel,
                 "follow",
+                message.user_id.as_str(),
                 message.user_login.as_str(),
                 message.user_name.as_str(),
                 format!("{} followed", message.user_name),
                 None,
-            );
+            ));
         }
         Event::ChannelSubscribeV1(payload) => {
             let EsMessage::Notification(message) = payload.message else {
                 return;
             };
-            event_message(
-                state,
+            state.push(event_entry(
                 &channel,
                 "subscribe",
+                message.user_id.as_str(),
                 message.user_login.as_str(),
                 message.user_name.as_str(),
                 format!(
@@ -875,33 +875,38 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event, gifs:
                     if message.is_gift { " (gift)" } else { "" }
                 ),
                 None,
-            );
+            ));
         }
         Event::ChannelCheerV1(payload) => {
             let EsMessage::Notification(message) = payload.message else {
                 return;
             };
+            let id = message
+                .user_id
+                .as_ref()
+                .map(|v| v.to_string())
+                .unwrap_or_default();
             let login = message.user_login.as_ref().map(|v| v.to_string());
             let name = message.user_name.as_ref().map(|v| v.to_string());
             let who = name.clone().unwrap_or_else(|| "anonymous".to_string());
-            event_message(
-                state,
+            state.push(event_entry(
                 &channel,
                 "cheer",
+                &id,
                 &login.unwrap_or_default(),
                 &who,
                 format!("{who} cheered {} bits", message.bits),
                 Some(message.bits.max(0) as u64),
-            );
+            ));
         }
         Event::ChannelRaidV1(payload) => {
             let EsMessage::Notification(message) = payload.message else {
                 return;
             };
-            event_message(
-                state,
+            state.push(event_entry(
                 &channel,
                 "raid",
+                message.from_broadcaster_user_id.as_str(),
                 message.from_broadcaster_user_login.as_str(),
                 message.from_broadcaster_user_name.as_str(),
                 format!(
@@ -909,7 +914,7 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event, gifs:
                     message.from_broadcaster_user_name, message.viewers
                 ),
                 None,
-            );
+            ));
         }
         Event::ChannelPointsCustomRewardRedemptionAddV1(payload) => {
             let EsMessage::Notification(message) = payload.message else {
@@ -949,21 +954,10 @@ async fn on_event(state: &Arc<ChatState>, token: &UserToken, event: Event, gifs:
     }
 }
 
-fn event_message(
-    state: &Arc<ChatState>,
-    channel: &str,
-    kind: &str,
-    login: &str,
-    name: &str,
-    summary: String,
-    amount: Option<u64>,
-) {
-    state.push(event_entry(channel, kind, login, name, summary, amount));
-}
-
 fn event_entry(
     channel: &str,
     kind: &str,
+    id: &str,
     login: &str,
     name: &str,
     summary: String,
@@ -972,7 +966,7 @@ fn event_entry(
     let mut chat_message = ChatMessage::new(
         channel,
         chat::KIND_EVENT,
-        user(String::new(), login, name, None, Vec::new()),
+        user(id.to_string(), login, name, None, Vec::new()),
         summary.clone(),
     );
     chat_message.notify = true;
@@ -992,6 +986,7 @@ fn automod_hold(channel: &str, message: &AutomodMessageHoldV2Payload) -> ChatMes
     let mut chat_message = event_entry(
         channel,
         "automod",
+        message.user_id.as_str(),
         message.user_login.as_str(),
         message.user_name.as_str(),
         summary,
@@ -1366,6 +1361,7 @@ mod tests {
         let message = event_entry(
             "channel",
             "follow",
+            "42",
             "viewer",
             "Viewer",
             "Viewer followed".to_string(),

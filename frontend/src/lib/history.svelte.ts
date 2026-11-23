@@ -23,6 +23,16 @@ type Options = {
 	onNotice?: (message: ChatMessage) => void;
 };
 
+function mentionableUser(message: ChatMessage): Chatter | null {
+	if (!message.user.id.trim()) {
+		return null;
+	}
+	return {
+		login: message.user.login,
+		name: message.user.name || message.user.login,
+	};
+}
+
 export class History {
 	entries = $state<Entry[]>([]);
 	chatters = $state<Chatter[]>([]);
@@ -93,13 +103,16 @@ export class History {
 			this.#onNotice?.(message);
 			return false;
 		}
+		if (!this.#restoring) {
+			const chatter = mentionableUser(message);
+			if (chatter) {
+				this.#remember(chatter.login, chatter.name);
+			}
+		}
 		if (message.kind === "event" && !this.#showEvents) {
 			return false;
 		}
 
-		if (message.kind === "chat" && !this.#restoring) {
-			this.#remember(message.user.login, message.user.name);
-		}
 		this.entries.push({ key, message });
 		while (this.entries.length > this.#maxMessages) {
 			this.forget(this.entries[0]);

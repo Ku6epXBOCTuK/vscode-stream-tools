@@ -111,9 +111,22 @@ describe("History", () => {
 
 	it("does not add service users to chatters", () => {
 		const history = new History({ maxMessages: 10 });
-		history.append(message({ seq: 1, kind: "notice", id: "n1" }));
-		history.append(message({ seq: 2, kind: "event", id: "e1" }));
+		const service = { ...message().user, id: "" };
+		history.append(message({ seq: 1, kind: "notice", id: "n1", user: service }));
+		history.append(message({ seq: 2, kind: "event", id: "e1", user: service }));
 		expect(history.chatters).toEqual([]);
+
+		history.append(
+			message({
+				seq: 3,
+				kind: "event",
+				id: "e2",
+				user: { ...service, id: "42", login: "twitch-chat", name: "twitch-chat" },
+			}),
+		);
+		expect(history.chatters).toEqual([
+			{ login: "twitch-chat", name: "twitch-chat" },
+		]);
 	});
 
 	it("clears everything on clear", () => {
